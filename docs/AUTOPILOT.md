@@ -941,3 +941,42 @@ Une ligne par réveil : date, item, résultat, ou la raison de l'arrêt.
   version traitait « pas de texte source fourni » comme « source vide ». Les
   tests l'ont attrapée. *Absent n'est pas vide* — c'est la troisième fois
   aujourd'hui que cette confusion précise coûte quelque chose.
+
+- 2026-08-22 — **L'arbitrage sur la couverture des lots est tranché : rien à
+  changer.** Il avait été ouvert le 21 août après avoir observé qu'un lot entier
+  retombait sur son texte d'origine à cause d'une seule ligne.
+
+  Mesure après le correctif des lignes vides (`#161`), corpus complet
+  `corpus/37-GT-BNL`, `gemma4:e2b` en local :
+
+  | | |
+  |---|---|
+  | pages | 37 |
+  | lignes | 522 |
+  | appels au producteur | 40 |
+  | **retries** | **2** |
+  | **descentes de granularité** | **1** |
+  | pages ayant eu besoin de l'un ou l'autre | **1 sur 37** |
+  | lignes corrigées | 213 |
+
+  **Les lignes vides étaient la cause de la totalité du phénomène.** Une fois
+  qu'une ligne source vide a droit à une réponse vide, l'échec de lot devient
+  marginal — un cas sur trente-sept.
+
+  **Et le dilemme que j'avais présenté n'existait pas.** J'avais posé la question
+  comme « couverture totale contre lots partiels ». Le code porte déjà une
+  descente `PAGE → BLOC → FENÊTRE → LIGNE` : à granularité LIGNE, un échec ne
+  coûte qu'une ligne. Le comportement « partiel » est donc **déjà là**, obtenu
+  par découpage plutôt que par acceptation partielle.
+
+  Reste un point noté et **non traité, faute de cas qui le déclenche** :
+  `max_attempts = 3` par granularité contre `per_chunk_budget = 6` pour toute la
+  descente. Trois essais au niveau BLOC consomment la moitié de la bourse, et les
+  sous-lots suivants se la partagent — le premier la prend, les autres retombent
+  sans avoir été tentés. Corriger ça aujourd'hui serait spéculatif : sur 37
+  pages, une seule descente a eu lieu, et elle a abouti.
+
+  **La leçon de méthode** : j'ai failli demander un arbitrage de conception pour
+  un défaut de trois lignes dans un validateur. Avant de solliciter une décision,
+  ouvrir le code — une question de conception et un bug se ressemblent beaucoup
+  vus de loin, et seul l'un des deux justifie d'attendre.
