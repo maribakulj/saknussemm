@@ -245,9 +245,8 @@ def refer_for_review(
     ``PENDING``, and on a line that fell back the correction was taken
     away — referring it would resurrect a decision the engine already
     unmade. Either is an engine bug, not bad input, so it raises
-    ``RuntimeError`` like ``_FinalizeOrder`` does, and deliberately not
-    a ``SaknussemmError``, which the chunk loop is allowed to absorb
-    (ADR-008).
+    ``RuntimeError``, and deliberately not a ``SaknussemmError``, which
+    the chunk loop is allowed to absorb (ADR-008).
     """
     if line.status not in (LineStatus.CORRECTED, LineStatus.REVIEW_REQUIRED):
         raise RuntimeError(

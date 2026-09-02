@@ -1,49 +1,40 @@
-"""The order of the finalisation passes decides what ships, and is now
-enforced (`RM-01`).
+"""The order of the finalisation passes decides what ships, and is asserted
+on the production path (`RM-01`, `H-3`).
 
-``core/finalize.py`` runs three document-wide passes and its docstring says
+``core/finalize.py`` runs four document-wide passes and its docstring says
 outright that "their ORDER is the whole content of this module". Until
 `RM-01` that was the only thing holding it: no type, no assertion, no test.
-A contributor who inserted a fourth pass, or reordered two while moving
-code between modules, broke a rule that existed only in prose — and the
-suite stayed green, because every other test in this package checks the
-FINAL state of a run that used the right order.
+A contributor who reordered two while moving code between modules broke a
+rule that existed only in prose — and the suite stayed green, because every
+other test in this package checks the FINAL state of a run that used the
+right order.
 
-:func:`test_pass_order_changes_the_delivered_text` is why that mattered.
-Permuting two passes does not renumber a report: it changes the corrected
-TEXT of a line, and ships a correction the canonical order rejects.
+Two tests, and they answer different questions.
 
-:func:`test_wrong_pass_order_is_refused` is the guard. It was written as a
-strict ``xfail`` in session 3, held the requirement while the mechanism was
-undecided, and the marker came off when
-:class:`~saknussemm.core.acceptance._FinalizeOrder` landed — which is what
-``strict`` was for.
+:func:`test_pass_order_changes_the_delivered_text` says WHY the order
+matters: permuting two passes does not renumber a report, it changes the
+corrected TEXT of a line and ships a correction the canonical order
+rejects. It builds its own sequences, so it demonstrates the interaction
+without asserting anything about production.
 
-The demonstration and the guard coexist because the token is OPTIONAL:
-``order=None`` means unchecked, which is the only way a test can still run
-the wrong order on purpose and show what the guard prevents. Production
-never passes ``None`` — :func:`test_finalize_document_threads_the_order`
-reads the source and fails if any pass is called without it.
+:func:`test_finalize_document_delivers_the_canonical_outcome` is the guard.
+It runs the real ``_finalize_document`` on that same document and pins the
+outcome, so a swap inside the shipped function turns it red.
+
+`RM-01` guarded this with a runtime token instead — an object threaded
+through four private functions whose only caller already calls them in
+order, checked by a test that read the source with ``ast`` to confirm the
+threading. `H-3` retired both once the assertion above was shown, by
+mutation, to catch the same swap with the token fully neutralised.
 """
 
 from __future__ import annotations
 
-
-import pytest
-
-from saknussemm.core.acceptance import (
-    _FinalizeOrder,
-    _global_adjacency_pass,
-    _loss_policy_pass,
-)
-from saknussemm.core.finalize import _preserve_break_chars
-from saknussemm.core.schemas import GuardConfig, LossPolicy
+from saknussemm.core.acceptance import _global_adjacency_pass, _loss_policy_pass
+from saknussemm.core.finalize import _finalize_document, _preserve_break_chars
+from saknussemm.core.schemas import GuardConfig, LineStatus, LossPolicy, ReviewPolicy
 
 from tests.decision._state import document, line, snapshot
-
-from tests._paths import SRC
-
-SRC = SRC
 
 #: A gate that is OFF by default (`RM-04` territory) but on a supported
 #: setting. It is the cheapest way to make the loss pass do something on
@@ -71,27 +62,25 @@ def _two_lines_one_gated():
     )
 
 
-def _run_canonical(order: _FinalizeOrder | None = None):
+def _run_canonical():
     manifest, all_lines, traces = _two_lines_one_gated()
     _global_adjacency_pass(
         guard_config=_GUARDS,
         document_manifest=manifest,
         all_lines=all_lines,
         traces=traces,
-        order=order,
     )
-    _preserve_break_chars(manifest, order)
+    _preserve_break_chars(manifest)
     sidecar = _loss_policy_pass(
         loss_policy=_GATED,
         document_manifest=manifest,
         all_lines=all_lines,
         traces=traces,
-        order=order,
     )
     return snapshot(manifest, traces), sidecar
 
 
-def _run_loss_first(order: _FinalizeOrder | None = None):
+def _run_loss_first():
     """The loss gate before the adjacency pass — one swap, nothing else."""
     manifest, all_lines, traces = _two_lines_one_gated()
     sidecar = _loss_policy_pass(
@@ -99,16 +88,14 @@ def _run_loss_first(order: _FinalizeOrder | None = None):
         document_manifest=manifest,
         all_lines=all_lines,
         traces=traces,
-        order=order,
     )
     _global_adjacency_pass(
         guard_config=_GUARDS,
         document_manifest=manifest,
         all_lines=all_lines,
         traces=traces,
-        order=order,
     )
-    _preserve_break_chars(manifest, order)
+    _preserve_break_chars(manifest)
     return snapshot(manifest, traces), sidecar
 
 
@@ -162,68 +149,42 @@ def test_pass_order_changes_the_delivered_text() -> None:
     )
 
 
-def test_wrong_pass_order_is_refused() -> None:
-    """A wrong order fails loudly instead of shipping different bytes.
+def test_finalize_document_delivers_the_canonical_outcome() -> None:
+    """The production path itself, on the scenario that separates the orders.
 
-    The loss gate declares that adjacency and break-char preservation must
-    have run; asked to go first, it refuses. ``RuntimeError`` rather than a
-    ``SaknussemmError`` on purpose — a wrong pass order is an engine bug,
-    and ``SaknussemmError`` is the family the chunk loop is allowed to
-    absorb (ADR-008).
+    The two tests above build their own sequences, so neither of them reads
+    ``_finalize_document``: they establish that the order matters, not that
+    the shipped one is right. This one runs the real function on the same
+    fixture and asserts the canonical outcome — both lines reverted as
+    duplicates of each other, nothing set aside.
+
+    That makes the order a BEHAVIOURAL guarantee rather than a structural
+    one. Swap two passes inside ``_finalize_document`` and ``L2`` ships
+    ``LE CHAT GRIS TRES`` while ``L1`` lands in the sidecar; this assertion
+    is what turns red. Verified by mutation on 2026-09-02 — both halves
+    fail when the loss pass is moved first — which is the evidence that
+    retired the runtime order token it replaces.
     """
-    with pytest.raises(RuntimeError, match="ran before"):
-        _run_loss_first(_FinalizeOrder())
-
-
-def test_the_canonical_order_is_accepted() -> None:
-    """The guard must not be a guard against everything."""
-    canonical, sidecar = _run_canonical(_FinalizeOrder())
-    assert canonical["L1"][1] == "fallback"
-    assert sidecar == []
-
-
-def test_a_pass_cannot_run_twice_in_one_run() -> None:
-    """Each pass reverts against what the previous left behind, so a repeat
-    is not idempotent — running the whole sequence twice on one token is a
-    bug, not a no-op."""
-    order = _FinalizeOrder()
-    _run_canonical(order)
-    with pytest.raises(RuntimeError, match="ran twice"):
-        _run_canonical(order)
-
-
-def test_finalize_document_threads_the_order() -> None:
-    """The token is optional so a test can opt out; production may not.
-
-    Reads ``_finalize_document`` and fails if it calls a pass without an
-    ``order``. Without this, the escape hatch that lets
-    :func:`test_pass_order_changes_the_delivered_text` exist would also let
-    a future edit drop the guard silently.
-    """
-    import ast
-
-    source = (SRC / "core" / "finalize.py").read_text(encoding="utf-8")
-    fn = next(
-        node
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.FunctionDef) and node.name == "_finalize_document"
+    manifest, all_lines, traces = _two_lines_one_gated()
+    decisions, sidecar = _finalize_document(
+        guard_config=_GUARDS,
+        loss_policy=_GATED,
+        review_policy=ReviewPolicy(),
+        document_manifest=manifest,
+        all_lines=all_lines,
+        traces=traces,
     )
-    called = {
-        node.func.id: node
-        for node in ast.walk(fn)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+
+    assert snapshot(manifest, traces) == {
+        "L1": ("le chat noir", "fallback", "adjacent_duplicate_detected"),
+        "L2": ("une souris grise ici", "fallback", "adjacent_duplicate_detected"),
     }
-    for name in (
-        "_global_adjacency_pass",
-        "_preserve_break_chars",
-        "_loss_policy_pass",
-    ):
-        call = called.get(name)
-        assert call is not None, f"_finalize_document no longer calls {name}"
-        passes_order = any(kw.arg == "order" for kw in call.keywords) or any(
-            isinstance(a, ast.Name) and a.id == "order" for a in call.args
-        )
-        assert passes_order, (
-            f"_finalize_document calls {name} without an order token — the "
-            "production path must always be checked; only tests may opt out."
-        )
+    assert sidecar == [], (
+        "a line reached the sidecar, so the loss gate saw a correction the "
+        "adjacency pass should already have reverted — the passes ran in "
+        "the wrong order"
+    )
+    assert decisions.fallback_lines == 2
+    assert all(
+        decision.status is LineStatus.FALLBACK for decision in decisions.decisions
+    )
