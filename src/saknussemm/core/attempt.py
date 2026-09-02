@@ -54,6 +54,7 @@ from saknussemm.core.protocols import (
     ProviderTransientError,
 )
 from saknussemm.core.redaction import sanitize_error
+from saknussemm.errors import ProposalValidationError, SaknussemmError
 from saknussemm.core.retry import _RetryDecision, _classify_retry
 from saknussemm.core.traces import _set_trace
 from saknussemm.core.schemas import (
@@ -70,23 +71,29 @@ from saknussemm.core.schemas import (
 )
 from saknussemm.core.validator import HyphenIntegrityError, validate_llm_response
 
-# ADR-008 (revised) — recoverability is an ALLOWLIST. Exactly the two
-# families the retry classifier can route are recoverable on the
-# producer-attempt path:
+# ADR-008 — recoverability is an ALLOWLIST, and it names CLASSIFIED types:
 #   - ProviderTransientError — transport flakiness a conforming provider
 #     wrapped (wrapping is the provider CONTRACT, not a courtesy: the
 #     provider-agnostic pipeline cannot name raw httpx/SDK exceptions,
 #     so an unwrapped one is indistinguishable from a bug and fails the
 #     run rather than degrading to a fake success);
-#   - ValueError — the documented malformed-producer-output family
-#     (ProposalValidationError, HyphenIntegrityError, json.JSONDecodeError all
-#     inherit it; §8.4 keeps them value-shaped for exactly this route).
-# Everything else — RuntimeError, KeyError, a pydantic bug, an SDK
-# exception nobody classified — fails the run: an unknown exception
-# must never become a silently-uncorrected "success".
+#   - ProposalValidationError — the malformed-producer-output family,
+#     HyphenIntegrityError included (§8.4).
+#
+# It used to name ``ValueError`` instead of the second, and that is not a
+# synonym for "the producer answered badly": pydantic's ValidationError
+# inherits it, so does json.JSONDecodeError, and so does a plain setattr
+# onto a pydantic model with a misspelled field. The catch below spans the
+# producer call, the script normalisation, the usage accounting AND the
+# validation, so any engine-side ValueError in that span was retried,
+# descended, and finally delivered as OCR text under a fallback reason
+# blaming the producer — the exact "silently-uncorrected success" this ADR
+# exists to refuse. A producer's own bare ValueError is still the
+# documented signal; it is classified where it is raised (see `_produce`)
+# rather than by widening this list to a type the engine also raises.
 _RECOVERABLE_ERROR_TYPES: tuple[type[BaseException], ...] = (
     ProviderTransientError,
-    ValueError,
+    ProposalValidationError,
 )
 
 
@@ -492,14 +499,28 @@ async def _produce(
     # invocation (this attempt hits the producer whether or not it
     # succeeds): the real cost.
     ctx.producer_calls += 1
-    return await producer.produce(
-        payload,
-        options=ProducerOptions(
-            attempt=attempt,
-            temperature=temperature,
-            should_abort=ctx.should_abort,
-        ),
-    )
+    try:
+        return await producer.produce(
+            payload,
+            options=ProducerOptions(
+                attempt=attempt,
+                temperature=temperature,
+                should_abort=ctx.should_abort,
+            ),
+        )
+    except SaknussemmError:
+        # Already classified — including the ValueError-shaped ones, whose
+        # own `retryable` flag the allowlist honours. A ParseError a
+        # producer let escape says retryable=False and must keep saying it.
+        raise
+    except ValueError as exc:
+        # THE producer boundary. A bare ValueError (or a JSONDecodeError,
+        # which is one) here is the producer failing to answer in shape —
+        # the historical contract, kept working. Naming it at the call is
+        # what lets `_RECOVERABLE_ERROR_TYPES` stay narrow enough that the
+        # same exception type raised BY THE ENGINE, further down this
+        # attempt, still fails the run instead of degrading it.
+        raise ProposalValidationError(str(exc)) from exc
 
 
 def _failure_family(exc: BaseException) -> str:

@@ -167,11 +167,16 @@ puisque chaque module coûte sa docstring de module (1 334 lignes au total).
 
 ## 7 — Dérives documentaires mineures
 
-`saknussemm.__all__` compte **68 symboles**. `docs/PLAN.md` écrit « 67 » en
-trois endroits (l. 44, 2130, 2293) et la fiche `P1` cite « 67 symboles
-publics ». `_smoke_imports.py` n'épingle aucun nombre, donc rien n'échoue —
-mais `V8` (« aucun document normatif ne décrit un périmètre faux ») porte
-précisément sur ce genre d'écart.
+`saknussemm.__all__` compte **68 symboles**. `docs/PLAN.md` écrivait « 67 »
+en trois endroits (l. 44, 2130, 2293). Le 68ᵉ est `ReviewPolicy`, rendu
+atteignable par la vague `G` depuis un paramètre public : croissance par
+clôture, comme `RefusedEdit` en `A2b`, et non accrétion.
+
+`_smoke_imports.py` n'épingle aucun nombre, donc rien n'échouait — mais
+`V8` (« aucun document normatif ne décrit un périmètre faux ») porte
+précisément sur ce genre d'écart. **Corrigé le 2026-09-02.** La fiche `P1`
+cite elle aussi « 67 symboles publics » et reste inchangée à dessein :
+c'est le relevé daté de la répétition du 2026-08-01, vrai ce jour-là.
 
 ## 8 — Ce qui est sain, et qu'il ne faut pas ouvrir
 

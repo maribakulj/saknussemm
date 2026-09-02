@@ -41,7 +41,7 @@ externe du 2026-08-16. Ce qui reste :
 1. Les gardes ne sont pas calibrées ; le code le dit lui-même
    (`GuardConfig.vision()`, seuil « safe default, not a calibrated one »).
 2. Un seul modèle, un seul profil de gardes, deux runs mesurés.
-3. La surface publique **est** close, à 67 symboles (`S3b`, fait le
+3. La surface publique **est** close, à 68 symboles (`S3b`, fait le
    2026-08-01, affiné par `RM-04` le 2026-08-06 — voir `V5`). Elle n'est
    donc plus un travail à faire, mais elle n'a jamais été relue par
    quelqu'un d'extérieur à sa construction, ce qu'exige `V10`. Publier
@@ -2127,7 +2127,7 @@ une formulation de `V5` qui ne parlait que de la façade.
 et l'erreur mérite d'être gardée parce qu'elle est reproductible.
 
 `S3b` **est déjà fait** — exécuté le 2026-08-01, et `RM-04` l'a affiné le
-2026-08-06. Les 67 symboles actuels ne sont pas une accumulation : c'est la
+2026-08-06. Les 68 symboles actuels ne sont pas une accumulation : c'est la
 clôture calculée, et `tests/test_public_api_snapshot.py` porte le raisonnement
 complet, que la mesure d'hier n'avait pas lu.
 
@@ -2290,8 +2290,10 @@ pas un constat, et il commande une séquence :
   publier `1.0` en premier.
 
 **Périmé le 2026-08-25 : le dilemme n'existe plus.** `S3b` a coupé le
-2026-08-01 et `RM-04` a affiné la surface le 2026-08-06 — elle est à **67
-symboles**, close et recalculée à chaque run par
+2026-08-01 et `RM-04` a affiné la surface le 2026-08-06 — elle est à **68
+symboles** depuis que la vague `G` a rendu `ReviewPolicy` atteignable depuis
+un paramètre public (croissance par clôture, comme `RefusedEdit` en `A2b`),
+close et recalculée à chaque run par
 `test_public_surface_is_the_closure`. Il n'y a donc plus de « couper avant ou
 après » à arbitrer : c'est coupé.
 
@@ -2318,6 +2320,109 @@ il en reste **deux**, et ni l'un ni l'autre n'est de la dette :
   inter-pages qu'**aucun** run ne mesure encore, et deux ventilations de
   métriques. Tout cela s'exécute sur `cinoc`, pas ici.
 - **`V10`** (`P3`) — la revue humaine externe de l'API publique.
+
+---
+
+## H — Habitabilité (audit du 2026-09-01)
+
+Origine : `docs/audit/AUDIT-2026-09-01-publiabilite-v1.md`. Comme `RM` et
+`RS`, cette vague **ne rouvre aucun** item `L`, `R`, `M`, `G` ou `V` et ne
+conteste aucune priorité. Elle tient entière dans ce que le gel autorise :
+correctifs, refactorisation **réductrice**, tests, documentation de vérité.
+
+Elle a un objet que les deux précédentes n'avaient pas. `RM` et `RS`
+réparaient des défauts. `H` ne répare rien : elle **retire**. Son critère
+n'est pas « ce module est-il justifié ? » — il l'est presque toujours — mais
+« combien de choses faut-il connaître pour expliquer le même comportement ? ».
+
+### Pourquoi une vague de retrait, et pourquoi maintenant
+
+Trois mesures, prises au même outil sur trois commits, disent la même chose.
+
+**Le débit de prose dépasse le stock.** Ratio prose/code de `src/` : 0,837
+avant `RS`, 0,841 à sa clôture, **0,859** aujourd'hui. `RS` visait le récit de
+migration, l'a retiré, et le ratio a monté. Depuis sa clôture : +280 lignes de
+code pour +404 de prose, soit **1,44 ligne de prose par ligne de code neuve**
+contre 0,86 en stock. Le problème n'est pas ce qui est écrit — 66 % de la
+prose est la référence d'API, et `RS` a déjà établi qu'y toucher serait une
+perte. Le problème est le **régime d'écriture**, que rien ne mesure.
+
+**L'émiettement est le vecteur.** `core/` : 43 modules, 5 709 lignes de code,
+médiane 127. **16 modules portent moins de 80 lignes de code** —
+`workspace.py` en porte 10 pour 56 de prose. Chaque module coûte sa docstring
+de module ; il y en a 1 334 lignes. Fusionner deux modules qui décrivent la
+même capacité retire du code, de la prose et un fichier à ouvrir, d'un seul
+geste. C'est la seule opération de cette vague qui gagne sur les trois axes.
+
+**Le chemin chaud ne tient pas dans un fichier.** Comprendre un retry suivi
+d'un repli demande `driver` → `attempt` → `retry` → `outcome`, plus `traces`.
+Ces quatre-là ne sont pas quatre capacités : c'est « exécuter un chunk »,
+découpé.
+
+### La règle de vérification, commune aux items
+
+Chaque tranche déclare, dans son commit, ce qu'elle a retiré :
+
+```
+Concepts retires  : 2 (PageWorkspace, _FinalizeOrder)
+Modules retires   : 1
+Prose retiree     : -180 l.
+Comportement      : inchange
+Parite corpus     : identique
+```
+
+Une tranche dont ce bloc porte un ajout net **n'est pas de cette vague**.
+C'est la seule contrainte, et elle est négative à dessein : `RS-4.2` a montré
+qu'un plafond chiffré demande de découper plutôt que de dire pourquoi, et
+qu'il produit alors l'objet qui fait baisser le nombre — `PageWorkspace` est
+né comme ça. **Aucun item ci-dessous n'ajoute de test de forme, de plafond,
+de ratio bloquant ni de cliquet AST.** Le ratio de prose se mesure et se lit
+en revue ; il ne refuse rien.
+
+### Items
+
+| id | item | gain attendu |
+|---|---|---|
+| `H-1` | **Fusionner le chemin chaud.** `driver` + `attempt` + `retry` + `outcome` décrivent « exécuter un chunk ». Les réunir sous un module qui se lit de haut en bas, quitte à ce qu'il fasse 600 lignes. Critère de sortie : **un retry suivi d'un repli se lit dans un fichier**, deux au plus | −3 fichiers, −3 docstrings de module, −N traductions de données |
+| `H-2` | **Résorber les modules squelettes.** Des 16 sous 80 lignes de code, fusionner dans leur appelant ceux qui n'ont **qu'un** appelant et ne nomment pas une capacité indépendante. `workspace.py` (10 l.) part avec `H-1` si le chemin fusionné rend ses trois index naturellement. **Ne partent pas** : `redaction.py` (couture de sécurité), `fidelity.py` et `projection.py` (vocabulaire public du rapport) | −5 à −8 fichiers |
+| `H-3` | **`_FinalizeOrder` s'en va.** Le jeton vérifie à l'exécution l'ordre de cinq appels écrits l'un sous l'autre dans une seule fonction privée. `tests/decision/test_finalize_pass_order.py` **existe déjà** et démontre la divergence de texte ; la preuve comportementale est donc acquise et le jeton la double | −1 concept, −4 paramètres `order=` |
+| `H-4` | **La docstring dit ce que la chose fait.** Pourquoi elle a cette forme appartient à ce plan et aux `ADR`. `CLAUDE.md` l'écrit déjà pour les références de vague — il en reste **9** dans `src/` — et la règle vaut pour le récit qui les entoure. Passe par les modules que `H-1` et `H-2` rouvrent de toute façon : **aucune passe de réécriture de prose isolée**, c'est ce qui a fait échouer la cible de `RS` | ratio en baisse comme effet, jamais comme objectif |
+| `H-5` | **Supprimer les six branches mortes.** `claude/repo-technical-audit-1afr82` a un arbre identique à `main` ; `phase4-complete`, `phase4-brique1-integration` et `promesses-etat-perime` sont en retard sur `main` ; `ligne-source-vide` n'a plus qu'un diff de doc ; `claude/a2b-a-refused-edit-is-visible` est une histoire pré-réécriture | le dépôt cesse de suggérer six chantiers ouverts |
+
+### Ce que cette vague ne touche pas
+
+- **Les réécriveurs ALTO/PAGE.** Condition inchangée : le corpus de parité
+  octet d'abord (§ `RM`).
+- **Le planner et la césure.** Complexité essentielle, elle vient du problème.
+- **`decide.py` écrivain unique** et son test d'exclusivité : il protège une
+  propriété sémantique, pas une taille.
+- **Le compteur d'arité/longueur.** `RS-4.2` a corrigé son incitation en
+  exigeant une raison écrite ; le supprimer maintenant rouvrirait la porte
+  qu'il ferme.
+- **`GuardConfig`.** Ses jumeaux se règlent indépendamment et la docstring
+  dit pourquoi. Les profils nommés sont déjà la porte principale.
+- **La surface publique.** Elle est close par calcul. `V10` la relira.
+
+### Condition d'arrêt
+
+C'est la partie qui manquait aux vagues précédentes, et son absence est ce
+qui a transformé trois audits en trois vagues. `H` est **close** quand les
+cinq propositions suivantes sont vraies, même si un audit peut encore
+trouver une fonction de 117 lignes ou une duplication de cinq lignes :
+
+1. Un retry suivi d'un repli se lit dans un fichier, deux au plus.
+2. `core/` ne porte plus de module qui soit à la fois sous 80 lignes de code,
+   à appelant unique, et sans capacité propre à nommer.
+3. Aucun objet n'existe principalement pour faire baisser un compteur.
+4. Le ratio prose/code de `src/` ne monte plus d'une vague à la suivante.
+5. Les garanties de corpus, de projection, de césure et d'`EditScript` sont
+   vertes, et la façade `load → correct → write` est inchangée.
+
+**Rien dans cette liste n'est un chiffre à atteindre.** La proposition 4 est
+une dérivée, pas un seuil : elle demande que la prochaine vague n'aggrave
+pas, pas qu'elle rattrape. Un audit ultérieur qui produit une vague `I` sans
+que ces cinq soient fausses est le signal que la boucle a repris, et non
+qu'il reste du travail.
 
 ---
 
@@ -3272,7 +3377,7 @@ Ce sont des décisions, pas des oublis. Détail et justification dans
 ## Répartition
 
 **Claude Code CLI** — dépôt, tests, mesures : `L*`, `R*`, `S*`, `T*`, `G1`-`G2`,
-`M1`-`M5`, `M7`, `D1`, `D3`-`D5`, `D7`-`D11`, `P1`-`P2`.
+`H*`, `M1`-`M5`, `M7`, `D1`, `D3`-`D5`, `D7`-`D11`, `P1`-`P2`.
 
 **Claude Desktop** — recherche, décision, documents : `Gate 0`, `M6`, `D2`,
 `D6`, `D12`, `G3`, `P3`.
@@ -3311,6 +3416,15 @@ peuvent s'intercaler librement. **`RM-1` et `RM-2` doivent précéder `S1`** —
 métrique qui récompense le drilling et sans garde sur l'ordre des passes
 reproduirait dans la famille césure ce que `S2` a produit dans
 l'orchestration. `RM-08` est un constat d'entrée de `S1`, pas un item séparé.
+
+**Vague `H` — habitabilité, après `P2`, jamais avant.** Elle ne ferme aucun
+critère de sortie : `0.10.0` se publie sans elle, et l'engager d'abord
+retarderait la publication pour un gain qui n'est pas de correction.
+`H-5` (supprimer les branches mortes) est l'exception — il ne touche pas au
+code et peut se faire n'importe quand. `H-1` et `H-2` doivent en revanche
+précéder `S1` **s'il reste à faire à ce moment-là** : fusionner le chemin
+chaud d'abord évite de porter un gros refactor de la famille césure à travers
+quatre modules qui n'auraient pas dû être quatre.
 
 `Gate 0` en parallèle sur Desktop, du premier jour au dernier — c'est le seul
 item qui peut bloquer `P2` sans avertissement.
