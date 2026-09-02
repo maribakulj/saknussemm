@@ -3,6 +3,12 @@
 Lecture seule sur `main` à `ff38bbb`. Constats seulement : le plan est
 `docs/PLAN.md` et cet audit n'en porte pas, conformément à `CLAUDE.md`.
 
+**Suites données, le 2026-09-02**, annotées dans les constats concernés
+plutôt que listées ici : le constat 3 est **corrigé**, le constat 4 est
+inscrit au plan comme `G4` (arbitrage), le constat 7 est corrigé, et les
+constats 5 et 6 fondent la vague `H`. Les mesures ci-dessous restent
+celles du 2026-09-01 : ce sont des relevés datés, pas un état courant.
+
 **Ce qui a été exécuté ici**, et non lu dans un rapport : la suite
 (`1875 passés, 1 ignoré`, les 5 échecs restants tous dans le seul fichier
 qui exige Pillow, extra `[vision]` non installé) ; `mypy --strict` sur les
@@ -80,9 +86,19 @@ Deux amplificateurs, tous deux vérifiés :
    `"LineTrace" object has no field "projetced_text"`. Une coquille dans un
    nom de champ de trace devient donc un repli OCR attribué au modèle.
 
-`docs/PLAN.md:2598` déclare l'allowlist `ADR-008` « intacte » comme
-non-cible de vague : ce point n'est pas un arbitrage rendu, c'est un angle
-mort.
+`docs/PLAN.md` déclarait l'allowlist `ADR-008` « intacte » comme non-cible
+de vague : ce point n'était pas un arbitrage rendu, c'était un angle mort.
+
+**Corrigé le 2026-09-02.** L'allowlist se réduit à
+`(ProviderTransientError, ProposalValidationError)`, et un `ValueError` nu
+levé par le producteur est classé **à la frontière**, dans `_produce` —
+donc les producteurs qui signalent ainsi une sortie malformée ne changent
+pas de comportement, ce que deux tests de compatibilité vérifient. Les
+`SaknussemmError` déjà classées passent intactes, si bien qu'un
+`ParseError` qui déclare `retryable=False` continue de le dire au lieu
+d'être retryé contre son propre drapeau. `_set_trace` perd son
+`**fields: object` : `projetced_text` est désormais une erreur `mypy` qui
+propose `projected_text`.
 
 ## 4 — La provenance ne couvre pas ce qui peut changer les octets
 
@@ -101,6 +117,12 @@ l'ajoute conditionnellement nulle part.
 **Portée réelle, à ne pas surestimer** : les deux bornes valent `None` par
 défaut et le routage exige un scorer. C'est un défaut d'un chemin
 expérimental, pas du chemin nominal.
+
+**Inscrit le 2026-09-02 comme `G4`**, en arbitrage et non en correctif :
+mettre ces politiques dans l'empreinte sans condition casse toute
+empreinte déjà émise, et les y mettre sous condition rend l'empreinte non
+recalculable depuis la seule configuration — ce que sa docstring promet.
+Le plan porte la troisième voie.
 
 ## 5 — La prose : le stock est défendable, le flux ne l'est pas
 
