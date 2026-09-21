@@ -30,7 +30,12 @@ from saknussemm.formats.alto._ns import (
 )
 from saknussemm.formats._xml import read_source_tree_classified
 from saknussemm.formats.alto._text import reconstruct_textline
-from saknussemm.core.protocols import RewriteResult
+from saknussemm.core.protocols import (
+    LineGeometryRequest,
+    RewriteResult,
+    TokenBox,
+    WordGeometryResolver,
+)
 from saknussemm.core.schemas import HyphenRole, LineManifest, PageManifest
 
 # ---------------------------------------------------------------------------
@@ -193,6 +198,81 @@ def _compute_geometry(
         result.append((t, cursor, w))
         cursor += w
     return result
+
+
+def _geometry_is_usable(
+    boxes: tuple[TokenBox, ...],
+    tokens: list[str],
+    hpos: int,
+    width: int,
+) -> bool:
+    """Whether a resolver's answer may be written into the tree.
+
+    A resolver is a third party -- eventually one carrying a neural model --
+    and the guarantee that saknussemm never emits an ALTO whose boxes
+    contradict its text belongs to the engine, not to whoever plugs in. So
+    the answer is checked rather than trusted, on the four properties the
+    rewriter itself would otherwise have to assume:
+
+    - one box per token, in order, each carrying its own token's text;
+    - every width strictly positive (a zero-width String is not a box);
+    - left-to-right monotonic, boxes not overlapping;
+    - the whole run inside the line box it was given.
+
+    A failure is not an error. It means the line falls back to
+    ``_compute_geometry``, which is what would have drawn it anyway, and
+    the run continues -- a resolver that cannot answer a hard line must
+    degrade to the incumbent, never take the page down with it.
+    """
+    if len(boxes) != len(tokens):
+        return False
+    if any(b.text != t for b, t in zip(boxes, tokens)):
+        return False
+    if any(b.width <= 0 for b in boxes):
+        return False
+    if any(b.hpos + b.width > a.hpos for a, b in zip(boxes[1:], boxes)):
+        return False
+    return boxes[0].hpos >= hpos and boxes[-1].hpos + boxes[-1].width <= hpos + width
+
+
+def _resolve_geometry(
+    resolver: WordGeometryResolver | None,
+    manifest: LineManifest,
+    hpos: int,
+    vpos: int,
+    width: int,
+    height: int,
+    tokens: list[str],
+    image: object | None,
+) -> list[tuple[str, int, int]]:
+    """The resolver's geometry when it is usable, the proportional one else.
+
+    Every failure mode collapses to the same outcome on purpose: no
+    resolver, a resolver that raises, and a resolver that answers something
+    unusable all produce exactly the bytes saknussemm produces today. That
+    is what makes this seam safe to add before anything fills it -- and what
+    makes ``word_geometry=None`` byte-identical to the version without the
+    parameter.
+    """
+    if resolver is not None:
+        try:
+            boxes = resolver.resolve(
+                LineGeometryRequest(
+                    hpos=hpos,
+                    width=width,
+                    tokens=tuple(tokens),
+                    line_id=manifest.line_id,
+                    vpos=vpos,
+                    height=height,
+                    image=image,
+                )
+            )
+        except Exception:
+            boxes = ()
+        if _geometry_is_usable(boxes, tokens, hpos, width):
+            return [(b.text, b.hpos, b.width) for b in boxes]
+
+    return _compute_geometry(hpos, width, tokens)
 
 
 # ---------------------------------------------------------------------------
@@ -907,6 +987,8 @@ def _rebuild_line(
     ns: str,
     *,
     space_before_break: bool = False,
+    word_geometry: WordGeometryResolver | None = None,
+    image: object | None = None,
 ) -> tuple[dict[str, int], bool]:
     """Slow-path rebuild for any TextLine (normal, PART1, BOTH, PART2).
 
@@ -1046,7 +1128,9 @@ def _rebuild_line(
         if "ID" in orig_string_attribs[i]
     }
 
-    geo = _compute_geometry(hpos, text_width, tokens)
+    geo = _resolve_geometry(
+        word_geometry, manifest, hpos, vpos, text_width, height, tokens, image
+    )
     str_n = sp_n = 0
     last_word_hpos = hpos
     last_word_width = hyp_width
@@ -1108,6 +1192,7 @@ def rewrite_alto_file(
     *,
     lib_version: str | None = None,
     config_fingerprint: str | None = None,
+    word_geometry: WordGeometryResolver | None = None,
 ) -> RewriteResult:
     """
     Rewrite an ALTO XML file with corrected text from page_manifests.
@@ -1213,7 +1298,12 @@ def rewrite_alto_file(
 
         # --- Path 4: SLOW PATH (word count changed) ---
         line_losses, move_suspected = _rebuild_line(
-            tl_el, write_text, lm, ns, space_before_break=break_space
+            tl_el,
+            write_text,
+            lm,
+            ns,
+            space_before_break=break_space,
+            word_geometry=word_geometry,
         )
         _apply_subs(tl_el, lm, ns)
         metrics.slow_path += 1

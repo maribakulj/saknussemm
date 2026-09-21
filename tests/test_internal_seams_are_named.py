@@ -223,11 +223,26 @@ _SEAMS: dict[str, tuple[str, str]] = {
         "value",
         "tokens in, widths out — asserting the exact sum is only possible here",
     ),
+    "saknussemm.formats.alto.rewriter._geometry_is_usable": (
+        "value",
+        "boxes in, a verdict out. It is the guard that lets a THIRD PARTY "
+        "hand geometry to the slow path at all, so each refusal needs a test "
+        "that fails when its branch is removed — and a run only exposes "
+        "whether the fallback was taken, never which property refused",
+    ),
     "saknussemm.formats.alto.rewriter._is_space_token": ("value", "a predicate"),
     "saknussemm.formats.alto.rewriter._rebuild_line": (
         "value",
         "rebuilds an element the test built; `RM-10` measures this function "
         "and forbids cutting it, so the tests are its only description",
+    ),
+    "saknussemm.formats.alto.rewriter._resolve_geometry": (
+        "value",
+        "a resolver and a line in, token boxes out. Its whole promise is that "
+        "no resolver, one that raises and one that answers something unusable "
+        "all produce the SAME bytes as before the seam existed — three "
+        "indistinguishable paths, which is exactly what no run output can "
+        "tell apart",
     ),
     "saknussemm.formats.alto.rewriter._subs_need_update": (
         "value",

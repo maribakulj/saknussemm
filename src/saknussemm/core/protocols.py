@@ -451,3 +451,75 @@ __all__ = [
     "require_capabilities",
     "require_page_images",
 ]
+
+# ---------------------------------------------------------------------------
+# Word geometry (§6.1) — the slow path's only guess
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TokenBox:
+    """A token and the horizontal span the rewriter should draw for it.
+
+    Horizontal only, and deliberately. A line's ``VPOS``/``HEIGHT`` are the
+    line's own and every token inherits them; a resolver that claimed a
+    per-word vertical extent would be asserting a precision no method here
+    has. When one does — an ink mask, a polygon — it gets its own seam
+    rather than smuggling itself through this one.
+
+    ``text`` may be a run of whitespace: ``SP`` elements are emitted from
+    space tokens and their geometry has to agree with the Strings around
+    them, so spaces are carried here rather than left as gaps.
+    """
+
+    text: str
+    hpos: int
+    width: int
+
+
+@dataclass(frozen=True)
+class LineGeometryRequest:
+    """One line's box, and the tokens that must be laid out inside it.
+
+    ``image`` is an OPAQUE reference and the core never opens it. That is
+    what lets this request cross the pixel-blind engine untouched: the
+    caller puts something in (a path, an ``ImageAsset``, a pre-cut crop),
+    the core hands it over without importing anything that can decode it,
+    and only a resolver that lives outside this package looks. ``I4``
+    (``tests/test_import_contract.py``) stays true by construction rather
+    than by discipline.
+    """
+
+    hpos: int
+    width: int
+    tokens: tuple[str, ...]
+    line_id: str = ""
+    vpos: int = 0
+    height: int = 0
+    image: object | None = None
+
+
+@runtime_checkable
+class WordGeometryResolver(Protocol):
+    """Where each token of a re-segmented line sits, horizontally.
+
+    The slow path exists because a correction changed the word count, and
+    once it does, every original ``String`` box on that line is discarded
+    and the width redistributed. Today that redistribution is proportional
+    to character count — honest, deterministic, and blind to the image.
+    Measured against the producers' own boxes, it puts 87–93% of word
+    boundaries inside the true inter-word blank, with a tail out to nearly
+    four characters. This seam is where something that looks at the pixels
+    can do better, and where it has to prove that it does.
+
+    A resolver is NOT trusted. Its output is validated before it reaches
+    the tree — right token count, monotonic, inside the line box, widths
+    positive — and the proportional geometry is used instead when the
+    check fails. A third party must not be able to make saknussemm emit an
+    ALTO whose boxes contradict its text; that guarantee is the engine's,
+    not the resolver's.
+    """
+
+    name: str
+
+    def resolve(self, request: LineGeometryRequest) -> tuple[TokenBox, ...]: ...
