@@ -1192,6 +1192,7 @@ def rewrite_alto_file(
     *,
     lib_version: str | None = None,
     config_fingerprint: str | None = None,
+    word_geometry: WordGeometryResolver | None = None,
 ) -> RewriteResult:
     """
     Rewrite an ALTO XML file with corrected text from page_manifests.
@@ -1297,7 +1298,12 @@ def rewrite_alto_file(
 
         # --- Path 4: SLOW PATH (word count changed) ---
         line_losses, move_suspected = _rebuild_line(
-            tl_el, write_text, lm, ns, space_before_break=break_space
+            tl_el,
+            write_text,
+            lm,
+            ns,
+            space_before_break=break_space,
+            word_geometry=word_geometry,
         )
         _apply_subs(tl_el, lm, ns)
         metrics.slow_path += 1

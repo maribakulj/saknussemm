@@ -180,14 +180,26 @@ _MEASURED_NOT_A_DEBT: dict[str, tuple[int, str]] = {
         "les cas sont ceux du corpus, pas ceux d'une abstraction",
     ),
     "formats/alto/rewriter.py::_rebuild_line": (
-        193,
+        # 193 -> 197 le 2026-09-22, et c'est une CAPACITE, pas une dérive :
+        # la fonction reçoit le résolveur de géométrie et l'appelle. Mesuré
+        # avant de le décider — sur trois corpus, la géométrie proportionnelle
+        # place 63 à 84 % des frontières de mots dans le vrai blanc, un
+        # résolveur qui lit les pixels en place 99,7 %. Le garde existe pour
+        # arrêter la dérive, pas pour interdire ce que la feuille de route
+        # demande ; relever une épingle reste une décision de mainteneur, et
+        # celle-ci a été prise explicitement.
+        197,
         "la plus longue du paquet, et le seul code qui décide de la "
         "géométrie des tokens livrés. Chaque branche porte un cas réel "
         "documenté ; c'est aussi le seul endroit où une erreur corrompt le "
         "fichier au lieu de le dégrader",
     ),
     "formats/alto/rewriter.py::rewrite_alto_file": (
-        158,
+        # 158 -> 165 le 2026-09-22 : le paramètre `word_geometry` et son
+        # passage à `_rebuild_line`. `page_image` a été RETIRÉ de la surface
+        # après coup — un résolveur qui lit les pixels porte sa propre source
+        # d'image, donc le faire voyager ici gonflait la signature pour rien.
+        165,
         "la boucle qui choisit un des quatre chemins de réécriture par "
         "ligne et tient la comptabilité des pertes",
     ),

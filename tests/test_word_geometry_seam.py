@@ -180,3 +180,133 @@ def test_the_request_carries_the_line_and_an_opaque_image() -> None:
     assert resolver.seen.line_id == "L1"
     assert resolver.seen.tokens == ("de", " ", "la")
     assert (resolver.seen.hpos, resolver.seen.width) == (HPOS, WIDTH)
+
+
+# --------------------------------------------------------------------------
+# Le fil complet : rewrite_alto_file -> _rebuild_line -> le résolveur
+# --------------------------------------------------------------------------
+
+
+def test_the_public_entry_point_reaches_the_resolver(tmp_path) -> None:
+    """Sans ce fil, le Protocol est décoratif.
+
+    Il a manqué un temps : la couture s'arrêtait à ``_rebuild_line``, que
+    rien d'appelable depuis l'extérieur ne laissait atteindre. Le mode
+    existait, était mesuré, et était injoignable — exactement ce qui était
+    arrivé au producteur ``page_aligned`` de la démo.
+    """
+    from lxml import etree
+
+    from saknussemm.core.schemas import BlockManifest, Coords, PageManifest
+    from saknussemm.formats.alto.rewriter import rewrite_alto_file
+    from tests.test_rewriter import NS_V3, make_alto_xml
+
+    lines_xml = (
+        '<TextLine ID="L1" HPOS="100" VPOS="20" WIDTH="300" HEIGHT="40">'
+        '<String ID="S1" CONTENT="dela" HPOS="100" VPOS="20" '
+        'WIDTH="300" HEIGHT="40"/>'
+        "</TextLine>"
+    )
+    lm = LineManifest(
+        line_id="L1",
+        page_id="P1",
+        block_id="TB1",
+        line_order_global=0,
+        line_order_in_block=0,
+        coords=Coords(hpos=100, vpos=20, width=300, height=40),
+        ocr_text="dela",
+        corrected_text="de la",
+    )
+    page = PageManifest(
+        page_id="P1",
+        source_file="test.xml",
+        page_index=0,
+        page_width=2480,
+        page_height=3508,
+        blocks=[
+            BlockManifest(
+                block_id="TB1",
+                page_id="P1",
+                block_order=0,
+                coords=Coords(hpos=10, vpos=20, width=400, height=60),
+                line_ids=["L1"],
+            )
+        ],
+        lines=[lm],
+    )
+    path = tmp_path / "test.xml"
+    path.write_text(make_alto_xml(lines_xml), encoding="utf-8")
+
+    seen: list[LineGeometryRequest] = []
+
+    class _Pinned:
+        """Rend une géométrie reconnaissable, que rien d'autre ne produirait."""
+
+        name = "pinned"
+
+        def resolve(self, request: LineGeometryRequest) -> tuple[TokenBox, ...]:
+            seen.append(request)
+            return (
+                TokenBox(text="de", hpos=110, width=30),
+                TokenBox(text=" ", hpos=140, width=20),
+                TokenBox(text="la", hpos=160, width=40),
+            )
+
+    res = rewrite_alto_file(path, [page], "test", "mock", word_geometry=_Pinned())
+    root = etree.fromstring(res.xml_bytes)
+    strings = root.findall(f".//{{{NS_V3}}}String")
+
+    assert seen, "le résolveur n'a jamais été appelé"
+    assert seen[0].line_id == "L1"
+    assert seen[0].tokens == ("de", " ", "la")
+    assert [(s.get("CONTENT"), s.get("HPOS"), s.get("WIDTH")) for s in strings] == [
+        ("de", "110", "30"),
+        ("la", "160", "40"),
+    ]
+
+
+def test_the_public_entry_point_without_a_resolver_is_unchanged(tmp_path) -> None:
+    """Le défaut reste la géométrie proportionnelle, à l'octet près."""
+    from saknussemm.core.schemas import BlockManifest, Coords, PageManifest
+    from saknussemm.formats.alto.rewriter import rewrite_alto_file
+    from tests.test_rewriter import make_alto_xml
+
+    lines_xml = (
+        '<TextLine ID="L1" HPOS="100" VPOS="20" WIDTH="300" HEIGHT="40">'
+        '<String ID="S1" CONTENT="dela" HPOS="100" VPOS="20" '
+        'WIDTH="300" HEIGHT="40"/>'
+        "</TextLine>"
+    )
+    lm = LineManifest(
+        line_id="L1",
+        page_id="P1",
+        block_id="TB1",
+        line_order_global=0,
+        line_order_in_block=0,
+        coords=Coords(hpos=100, vpos=20, width=300, height=40),
+        ocr_text="dela",
+        corrected_text="de la",
+    )
+    page = PageManifest(
+        page_id="P1",
+        source_file="test.xml",
+        page_index=0,
+        page_width=2480,
+        page_height=3508,
+        blocks=[
+            BlockManifest(
+                block_id="TB1",
+                page_id="P1",
+                block_order=0,
+                coords=Coords(hpos=10, vpos=20, width=400, height=60),
+                line_ids=["L1"],
+            )
+        ],
+        lines=[lm],
+    )
+    path = tmp_path / "test.xml"
+    path.write_text(make_alto_xml(lines_xml), encoding="utf-8")
+
+    a = rewrite_alto_file(path, [page], "test", "mock").xml_bytes
+    b = rewrite_alto_file(path, [page], "test", "mock", word_geometry=None).xml_bytes
+    assert a == b
