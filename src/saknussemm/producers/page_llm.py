@@ -33,10 +33,14 @@ of them:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from saknussemm.core.editing import EditScript, ReplaceLine, ReplaceSpan
-from saknussemm.core.page_alignment import DEFAULT_LINE_BAND, align_page_lines
+from saknussemm.core.page_alignment import (
+    DEFAULT_LINE_BAND,
+    align_page_lines,
+    reproject_page_lines,
+)
 from saknussemm.core.protocols import (
     ProducerMetadata,
     ProducerOptions,
@@ -73,12 +77,26 @@ class PageLLMEditProducer:
         system_prompt: str | None = None,
         output_schema: dict[str, Any] | None = None,
         line_band: int = DEFAULT_LINE_BAND,
+        line_matching: Literal["jaccard", "characters"] = "jaccard",
         capabilities: ModelCapabilities | None = None,
     ) -> None:
         self._provider = provider
         self._api_key = api_key
         self._model = model
         self._line_band = line_band
+        #: How line identity is recovered. ``"jaccard"`` matches a returned
+        #: line to a source line by token overlap and REFUSES without
+        #: evidence; ``"characters"`` re-cuts the returned stream on the
+        #: source boundaries and never refuses. The second corrects better
+        #: (3.7% against 6.4% distance to ground truth — the measurement is
+        #: in :func:`~saknussemm.core.page_alignment.reproject_page_lines`)
+        #: but assumes an in-order stream; what catches it otherwise is the
+        #: ``min_source_similarity`` guard, downstream.
+        #:
+        #: The default stays ``"jaccard"``: the measurement covers nine
+        #: pages, and changing shipped behaviour is a maintainer's call, not
+        #: a consequence of nine pages.
+        self._line_matching = line_matching
         self._system_prompt = (
             PAGE_SYSTEM_PROMPT if system_prompt is None else system_prompt
         )
@@ -128,6 +146,15 @@ class PageLLMEditProducer:
                 "shift every line after the gap"
             )
 
+        if self._line_matching == "characters":
+            texts = reproject_page_lines(source_lines, returned)
+            ops: list[ReplaceLine | ReplaceSpan] = [
+                ReplaceLine(line_id=line.line_id, text=text)
+                for line, text in zip(payload.lines, texts, strict=True)
+                if text and text != line.ocr_text
+            ]
+            return EditScript(ops=ops), usage
+
         alignment = align_page_lines(source_lines, returned, band=self._line_band)
         if alignment.band_exhausted:
             raise ProposalValidationError(
@@ -136,7 +163,7 @@ class PageLLMEditProducer:
                 "identifies a line. Refused rather than approximated."
             )
 
-        ops: list[ReplaceLine | ReplaceSpan] = [
+        ops = [
             ReplaceLine(line_id=line.line_id, text=returned[target])
             for line, target in zip(payload.lines, alignment.matched, strict=True)
             if target is not None and returned[target] != line.ocr_text

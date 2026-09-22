@@ -54,6 +54,37 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ## [Unreleased]
 
+### Added
+
+- **Le mode `page_aligned` peut retrouver l'identité de ligne au CARACTÈRE,
+  pas seulement par jetons.** `core.page_alignment.reproject_page_lines`
+  recoupe le flux rendu sur les frontières des lignes source, et
+  `PageLLMEditProducer(..., line_matching="characters")` le sélectionne. Le
+  défaut reste `"jaccard"` : la surface livrée ne change pas.
+
+  Pourquoi. `align_page_lines` compare des **jetons**, et une post-correction
+  qui scinde un mot — `Maisiepenfois` devenant `Mais ie penſois` — ne partage
+  aucun jeton avec sa source. Les lignes qui profitent le plus de la
+  correction sont donc exactement celles qu'il refuse. Mesuré sur 9 pages
+  d'OCR17+ à vérité terrain humaine, correction de page entière par VLM :
+  **43 lignes sur 251 non appariées**, et l'écart à la vérité terrain
+  retombe de **3,7 % à 6,4 %**.
+
+  Ce n'était pas un mauvais choix. Le Jaccard a été validé contre une copie
+  **corrompue**, où les jetons survivent ; il devient faux contre une copie
+  **corrigée**, où ils ne survivent pas.
+
+  La contrepartie est mesurée aussi : le recollage au caractère suppose un
+  flux **dans l'ordre** et ne refuse jamais. Sur des sorties délibérément
+  mutées il passe de 3,7 % à 10,5 % (deux lignes échangées) là où le Jaccard
+  tient à 7,1 %. Ce qui le rattrape existe déjà — la garde
+  `min_source_similarity` refuse une ligne trop éloignée de sa source : avec
+  elle, les mêmes mutations rendent **4,3 %**, mieux que les deux stratégies
+  seules, et **zéro refus** sur une sortie normale.
+
+  Le défaut ne bouge pas parce que la mesure porte sur neuf pages ; changer
+  le comportement livré est un arbitrage de mainteneur.
+
 ### Fixed
 
 - **La géométrie des tokens ALTO ne dépend plus de la version de Python.**
