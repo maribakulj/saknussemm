@@ -95,6 +95,12 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   entiers ne conviennent pas comme alias : après une suppression, le modèle
   renumérote ; un jeton opaque, il le recopie.
 
+- `PageLLMEditProducer` aplatit tout séparateur de ligne dans une ligne
+  rendue avant de l'apparier. Mesuré sur OCR17+ à travers le pipeline : un
+  U+2028 dans une ligne rendue faisait, sous `"characters"`, refuser la
+  page entière par le validateur, retenter quatre fois, redescendre d'un
+  cran et finir en `all_attempts_exhausted` sur ses 19 lignes.
+
 - `PageLLMEditProducer(line_matching="characters")` documente qu'il ne
   vérifie pas l'hypothèse d'ordre dont il dépend et ne doit jamais tourner
   sans `attachment_scope="page"` : sur un flux qui n'est plus la page, il

@@ -147,6 +147,8 @@ class PageLLMEditProducer:
             temperature=options.temperature,
         )
         returned = page_lines_from_response(raw)
+        if returned is not None:
+            returned = [_one_line(text) for text in returned]
         if returned is None:
             raise ProposalValidationError(
                 "page response is not {'lines': [str, …]} — with position as "
@@ -177,6 +179,23 @@ class PageLLMEditProducer:
             if target is not None and returned[target] != line.ocr_text
         ]
         return EditScript(ops=ops), usage
+
+
+def _one_line(text: str) -> str:
+    """A returned line with any line separator flattened to a space.
+
+    The validator refuses a ``corrected_text`` holding any ``str.splitlines``
+    boundary, and rightly: a newline inside one line is the model splitting
+    it. Under Jaccard such a line is simply never matched (its tokens still
+    are, so it usually is — and then refused). Under ``"characters"`` it is
+    worse: the stream is re-cut on the source boundaries and the separator
+    lands inside a piece, so the whole page is refused, retried, downgraded
+    and finally FALLS BACK — measured on OCR17+ (Balzac, 19 lines): four
+    retries, one downgrade, ``all_attempts_exhausted`` on every line, for
+    one U+2028 in one returned string. Flattening it costs nothing the
+    guards would not have caught.
+    """
+    return " ".join(text.splitlines())
 
 
 __all__ = ["PageLLMEditProducer"]
