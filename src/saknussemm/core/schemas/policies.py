@@ -56,6 +56,17 @@ class ChunkPlannerConfig(FrozenPolicy):
     max_lines_per_request: int = Field(default=80, gt=0)
     line_window_size: int = Field(default=12, gt=0)
     line_window_overlap: int = Field(default=1, ge=0)
+    #: At BLOCK granularity, merge CONSECUTIVE block groups into one chunk
+    #: while the chunk stays within both budgets. Off (the historical
+    #: behaviour): one chunk per block group, however small. Measured on
+    #: OCR17+ through the pipeline: PAGE files whose regions are one or two
+    #: lines each gave 105 chunks for 251 lines — 32 on a single page — so a
+    #: vision producer that reads context (a labelled strip of 20 rows) got
+    #: strips of 2 or 3, and every call paid the envelope for nothing. Hyphen
+    #: units are already grouped before this runs, so a merge never severs
+    #: one. ``block_id`` is ``None`` on a merged chunk, as it already is for
+    #: a group of several blocks.
+    coalesce_blocks: bool = False
 
     @model_validator(mode="after")
     def _overlap_smaller_than_window(self) -> "ChunkPlannerConfig":

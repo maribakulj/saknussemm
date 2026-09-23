@@ -56,6 +56,14 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- `ChunkPlannerConfig(coalesce_blocks=True)` : à la granularité BLOCK, les
+  groupes de régions consécutifs sont fusionnés en un chunk tant que les
+  deux budgets tiennent. Défaut `False` (un chunk par groupe, comme avant).
+  Mesuré à travers le pipeline sur OCR17+ : des fichiers PAGE à régions
+  d'une ou deux lignes donnaient 105 chunks pour 251 lignes — 32 sur une
+  seule page — et un producteur vision qui lit du contexte recevait des
+  bandes de 2 ou 3 rangées (`VR-2`).
+
 - `VisionEditProducer` lit le plafond d'images que son client déclare
   (`max_images_per_call` ou `MAX_IMAGES_PER_CALL`) quand l'hôte ne passe pas
   de `capabilities`. Mesuré à travers le pipeline : sans plafond déclaré, 19
