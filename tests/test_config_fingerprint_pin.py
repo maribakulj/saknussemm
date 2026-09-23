@@ -74,7 +74,7 @@ def test_config_fingerprint_is_pinned():
     (the vision/QE programme token_realign gate — default ``None`` keeps
     behaviour identical; the FIELD joins the fingerprinted surface,
     recorded in CHANGELOG under [Unreleased])."""
-    assert _default_pipeline().config_fingerprint() == "8035af05be00aedd"
+    assert _default_pipeline().config_fingerprint() == "9271509b99da94e0"
 
 
 def test_each_policy_fingerprint_is_pinned():
