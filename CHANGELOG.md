@@ -56,6 +56,22 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- `VisionEditProducer` lit le plafond d'images que son client déclare
+  (`max_images_per_call` ou `MAX_IMAGES_PER_CALL`) quand l'hôte ne passe pas
+  de `capabilities`. Mesuré à travers le pipeline : sans plafond déclaré, 19
+  recadrages partaient, le fournisseur refusait le neuvième, et le moteur
+  retentait puis redescendait au lieu de découper (`VR-3`).
+
+- **`PageVisionEditProducer` : la page entière en une image, l'identité dans
+  le texte.** C'est le levier de qualité mesuré (`hans`, H10/H12) et qui
+  n'avait aucun chemin dans la bibliothèque : sur OCR17+, un recadrage par
+  ligne lit à 6,4–6,7 %, une bande étiquetée à 6,25 %, la page en une image
+  à 3,7–4,6 % — le modèle se sert de la typographie et de la langue autour
+  d'une ligne pour la lire. Pas de géométrie (rien n'est recadré), une image
+  JPEG bornée à `max_side` (1 024 px mesuré meilleur que 2 048), des alias
+  opaques comme le composite, et le même chemin partagé après la réponse.
+  À coupler avec `GuardConfig(attachment_scope="page")` (`VR-1`).
+
 - **La marge de voisinage peut porter sur toute la page.**
   `GuardConfig(attachment_scope="page")` tient le garde 2 de `check_line`
   — « la correction ressemble plus à une autre ligne qu'à la sienne » —

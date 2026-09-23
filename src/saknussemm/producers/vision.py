@@ -61,12 +61,15 @@ __all__ = [
     "Crop",
     "ImagePart",
     "MultimodalStructuredClient",
+    "PAGE_VISION_SYSTEM_PROMPT",
+    "PageVisionEditProducer",
     "VISION_SYSTEM_PROMPT",
     "VisionEditProducer",
     "build_image_asset",
     "compose_line_strip",
     "crop_region",
     "line_aliases",
+    "page_image",
     "verified_image_bytes",
 ]
 
@@ -390,6 +393,28 @@ class MultimodalStructuredClient(Protocol):
     ) -> tuple[dict[str, Any], Usage | None]: ...
 
 
+def _declared_image_cap(provider: object) -> int | None:
+    """The per-call image cap a client declares on itself, if any.
+
+    A vision producer crops every line of its chunk, and the batcher only
+    splits a chunk when ``capabilities.max_images`` says where. Left
+    undeclared, the run does not fail loudly: measured on OCR17+ through the
+    pipeline, 19 crops went out, the provider refused the ninth (HTTP 400),
+    and the engine RETRIED and DOWNGRADED — the ladder reacts to malformed
+    output, not to a request refused outright — instead of splitting.
+
+    The client is the one that knows its vendor's limit, so a client may
+    declare it (``max_images_per_call``, or the demo's
+    ``MAX_IMAGES_PER_CALL``) and the producer reads it when the host passed
+    no ``capabilities``. An explicit ``capabilities`` still wins.
+    """
+    for name in ("max_images_per_call", "MAX_IMAGES_PER_CALL"):
+        value = getattr(provider, name, None)
+        if isinstance(value, int) and value > 0:
+            return value
+    return None
+
+
 class VisionEditProducer:
     """Adapt a :class:`MultimodalStructuredClient` (VLM) to ``EditProducer``.
 
@@ -456,7 +481,10 @@ class VisionEditProducer:
         #: VLM's per-call image cap injects ``max_images`` so the Router can
         #: keep a chunk's crops within it.
         self.capabilities = capabilities or ModelCapabilities(
-            text=True, vision=True, structured_output=True
+            text=True,
+            vision=True,
+            structured_output=True,
+            max_images=_declared_image_cap(provider),
         )
         default_prompt = (
             uncertainty_system_prompt() if uncertainty_channel else VISION_SYSTEM_PROMPT
@@ -879,3 +907,174 @@ def _unalias_response(raw: object, id_by_alias: Mapping[str, str]) -> object:
             continue
         kept.append({**entry, "line_id": line_id})
     return {**raw, "lines": kept}
+
+
+# ---------------------------------------------------------------------------
+# PageVisionEditProducer — the whole page as ONE image, identity in the text
+# ---------------------------------------------------------------------------
+
+
+PAGE_VISION_SYSTEM_PROMPT = """\
+Tu es un moteur de correction post-OCR spécialisé dans les documents patrimoniaux.
+L'IMAGE montre la PAGE ENTIÈRE. Le JSON donne les lignes de cette page dans l'ordre
+de lecture, chacune avec son identifiant et son texte OCR. Repère chaque ligne dans
+l'image d'après son texte OCR et sa position, puis corrige-la d'après l'image.
+
+Règles absolues :
+1. Corrige uniquement les erreurs manifestes d'OCR, d'après l'image.
+2. Conserve la langue source.
+3. Conserve l'orthographe historique quand elle est réellement présente à l'image \
+(ſ long, u pour v, ligatures) : ce n'est pas une erreur.
+4. Ne traduis rien.
+5. Ne modernise pas volontairement le texte.
+6. Ne fusionne jamais deux lignes.
+7. Ne scinde jamais une ligne.
+8. Ne déplace jamais du texte d'une ligne à l'autre.
+9. Chaque entrée line_id doit produire exactement une sortie avec le même line_id, \
+recopié tel quel.
+10. corrected_text doit contenir une seule ligne, sans caractère de saut de ligne.
+11. Retourne uniquement un JSON valide conforme au schéma fourni.
+12. En cas de doute ou d'image illisible, conserve le texte OCR (correction minimale).
+13. N'invente jamais un caractère absent de l'image (pas d'hallucination visuelle).\
+"""
+
+
+def page_image(
+    asset: ImageAsset,
+    *,
+    max_side: int = 1024,
+    source_bytes: bytes | None = None,
+    quality: int = 88,
+) -> Crop:
+    """The whole page, EXIF-normalized and bounded to ``max_side`` pixels.
+
+    JPEG rather than PNG: a page at 1024 px is a photograph-sized image and
+    the model reads it, it does not diff it; at quality 88 a page weighs a
+    few hundred kilobytes instead of several megabytes. Deterministic in its
+    inputs like :func:`crop_region`, so the ``sha256`` is a provenance
+    anchor. 1024 is the measured setting: 2048 read no better and less
+    stably (2.9–4.6 % against 3.7 %, H10).
+    """
+    from PIL import Image, ImageOps  # lazy — I4
+
+    raw_bytes = (
+        source_bytes if source_bytes is not None else verified_image_bytes(asset)
+    )
+    with Image.open(io.BytesIO(raw_bytes)) as raw:
+        raw.seek(asset.frame_index)
+        image = ImageOps.exif_transpose(raw).convert("RGB")
+        if max(image.size) > max_side:
+            factor = max_side / max(image.size)
+            image = image.resize(
+                (max(1, int(image.width * factor)), max(1, int(image.height * factor))),
+                Image.Resampling.LANCZOS,
+            )
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=quality)
+        data = buffer.getvalue()
+        box = (0, 0, image.width, image.height)
+    return Crop(data=data, media_type="image/jpeg", sha256=_sha256(data), pixel_box=box)
+
+
+class PageVisionEditProducer:
+    """A vision producer that shows the model the WHOLE page, once per call.
+
+    The measured quality lever, and the one no producer gave a path to:
+    on OCR17+ (9 pages, human ground truth, `medium`), a crop per line
+    reads at 6.4–6.7 %, a labelled strip at 6.25 %, and the page as a
+    single image at **3.7–4.6 %** — the model uses the page's typography
+    and language around a line to read the line. Identity travels in the
+    text under opaque aliases (:func:`line_aliases`): on a clean page the
+    model copies them back; a mis-attachment slipping through is what
+    ``GuardConfig(attachment_scope="page")`` is for, and this producer
+    should be run with it.
+
+    No geometry is needed (nothing is cropped), so ``wants_geometry`` is
+    ``False``; one image per call, so no per-call image cap binds and the
+    chunk is whatever the planner made — the whole page under the default
+    budget. Everything after the reply is the shared LLM-shaped path.
+    """
+
+    wants_geometry: bool = False
+    wants_image: bool = True
+    requires_full_coverage: bool = True
+
+    def __init__(
+        self,
+        provider: MultimodalStructuredClient,
+        api_key: str,
+        model: str,
+        *,
+        system_prompt: str | None = None,
+        max_side: int = 1024,
+    ) -> None:
+        self._provider = provider
+        self._api_key = api_key
+        self._model = model
+        self._max_side = max_side
+        self._system_prompt = (
+            PAGE_VISION_SYSTEM_PROMPT if system_prompt is None else system_prompt
+        )
+        self._output_schema = OUTPUT_JSON_SCHEMA
+        self.capabilities = ModelCapabilities(
+            text=True, vision=True, structured_output=True
+        )
+        self.metadata = ProducerMetadata(
+            name="vision-page",
+            implementation=model,
+            configuration_fingerprint=prompt_schema_fingerprint(
+                self._system_prompt,
+                {"output_schema": self._output_schema, "max_side": max_side},
+            ),
+        )
+
+    async def produce(
+        self, payload: CorrectionRequest, *, options: ProducerOptions
+    ) -> tuple[EditScript, Usage | None]:
+        asset = payload.image_ref
+        if not isinstance(asset, ImageAsset):
+            raise ConfigurationError(
+                "PageVisionEditProducer requires a structured ImageAsset page "
+                "image (build it with build_image_asset), not a bare ImageRef; "
+                f"got {type(asset).__name__}"
+            )
+        image = page_image(asset, max_side=self._max_side)
+        aliases = line_aliases([line.line_id for line in payload.lines])
+        user_payload: dict[str, Any] = {
+            "task": payload.task,
+            "document_id": payload.document_id,
+            "page_id": payload.page_id,
+            "lines": [
+                {
+                    "line_id": aliases[line.line_id],
+                    "ocr_text": line.ocr_text,
+                    **(
+                        {"hyphenation_role": line.hyphenation_role}
+                        if line.hyphenation_role
+                        else {}
+                    ),
+                }
+                for line in payload.lines
+            ],
+        }
+        raw, usage = await self._provider.complete_structured_multimodal(
+            api_key=self._api_key,
+            model=self._model,
+            system_prompt=self._system_prompt,
+            user_payload=user_payload,
+            images=[
+                ImagePart(
+                    line_id="page",
+                    media_type=image.media_type,
+                    data=image.data,
+                    sha256=image.sha256,
+                )
+            ],
+            json_schema=self._output_schema,
+            temperature=options.temperature,
+        )
+        ops = edit_ops_from_response(
+            _unalias_response(raw, {alias: lid for lid, alias in aliases.items()}),
+            source_by_id={ln.line_id: ln.ocr_text for ln in payload.lines},
+        )
+        return EditScript(ops=ops), usage
