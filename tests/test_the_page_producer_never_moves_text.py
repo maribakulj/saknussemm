@@ -198,3 +198,60 @@ async def test_an_unchanged_page_emits_nothing() -> None:
     of "untouched", reached without a special case."""
     script, _ = await _run(["le chat dort"], "le chat dort")
     assert script.ops == []
+
+
+# ---------------------------------------------------------------------------
+# line_matching="characters" — the other way to recover identity
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_characters_mode_edits_a_line_jaccard_would_refuse() -> None:
+    """A split word shares no token with its source, so Jaccard declines it.
+
+    That is the whole reason the second strategy exists: the lines a
+    correction helps most are the ones token overlap cannot settle. Measured
+    on 9 ground-truth pages: 43 of 251 lines unmatched, and the distance to
+    ground truth falling back from 3.7% to 6.4%.
+    """
+    answer = ["Mais ie penſois", "& l'autre eſtoient"]
+    source = ("Maisiepenfois", "& l'autre eftoient")
+
+    keyed, _ = _producer(answer)
+    assert keyed._line_matching == "jaccard", "le défaut livré ne doit pas bouger"
+    ops_jaccard = (await keyed.produce(_request(*source), options=ProducerOptions()))[0]
+
+    chars = PageLLMEditProducer(_Answers(answer), "k", "m", line_matching="characters")
+    ops_chars = (await chars.produce(_request(*source), options=ProducerOptions()))[0]
+
+    edited_jaccard = {op.line_id for op in ops_jaccard.ops}
+    edited_chars = {op.line_id for op in ops_chars.ops}
+    assert "L0" not in edited_jaccard, "ce test ne vaut que si Jaccard refuse bien L0"
+    assert "L0" in edited_chars
+
+
+@pytest.mark.asyncio
+async def test_characters_mode_never_emits_more_ops_than_lines() -> None:
+    """Whatever the model returned, no line receives two edits and none is
+    invented — the count out is bounded by the count in."""
+    chars = PageLLMEditProducer(
+        _Answers(["une", "deux", "trois", "quatre", "cinq"]),
+        "k",
+        "m",
+        line_matching="characters",
+    )
+    script, _ = await chars.produce(_request("a", "b"), options=ProducerOptions())
+    assert len(script.ops) <= 2
+    assert len({op.line_id for op in script.ops}) == len(script.ops)
+
+
+@pytest.mark.asyncio
+async def test_characters_mode_leaves_an_unchanged_line_alone() -> None:
+    """No op where nothing changed, exactly like the keyed path."""
+    chars = PageLLMEditProducer(
+        _Answers(["inchangee", "corrigee"]), "k", "m", line_matching="characters"
+    )
+    script, _ = await chars.produce(
+        _request("inchangee", "corrigee"), options=ProducerOptions()
+    )
+    assert script.ops == []
