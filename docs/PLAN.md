@@ -3332,10 +3332,10 @@ la descente de granularité font différer le résultat de celui du script.
 
 | ID | Titre | Nature | Gravité | Fichiers | Dépend de | Statut |
 |---|---|---|---|---|---|---|
-| `VR-1` | Aucun producteur ne donne au modèle **l'image de la page entière** — le levier de qualité mesuré (4,58 % contre 6,25–6,74 % pour les recadrages, zéro ligne mal rattachée) n'a pas de chemin dans la bibliothèque | **fonctionnalité** | **critique** | `producers/vision.py` | — | **fait (code) — run de vérification en cours** |
-| `VR-2` | Le planificateur BLOCK fait **un chunk par groupe de régions** sans regrouper les petites : 105 chunks pour 251 lignes, bandes composites de 2–3 rangées | correctif (planificateur) | important | `core/planner.py`, `core/schemas/policies.py` | — | **fait (code) — run de vérification à faire** |
+| `VR-1` | Aucun producteur ne donne au modèle **l'image de la page entière** — le levier de qualité mesuré (4,58 % contre 6,25–6,74 % pour les recadrages, zéro ligne mal rattachée) n'a pas de chemin dans la bibliothèque | **fonctionnalité** | **critique** | `producers/vision.py` | — | **fait et vérifié** : `page-vision` + note de corpus + `vision(attachment_scope="page")` = **4,19 %**, 0 mal rattachée (script `hans` : 4,58 %) |
+| `VR-2` | Le planificateur BLOCK fait **un chunk par groupe de régions** sans regrouper les petites : 105 chunks pour 251 lignes, bandes composites de 2–3 rangées | correctif (planificateur) | important | `core/planner.py`, `core/schemas/policies.py` | — | **fait et vérifié** : 105 → 16 chunks, jetons ÷ 2 ; avec la note de corpus le composite regroupé lit à **4,23 %** |
 | `VR-3` | `VisionEditProducer` sans `max_images` déclaré envoie 19 recadrages ; le fournisseur refuse ; le pipeline **retente et redescend au lieu de découper** | correctif (configuration silencieuse) | important | `producers/vision.py` | — | **fait** |
-| `VR-4` | Le prompt générique de `page_aligned` **modernise** le français du XVIIe (`meritay-je` → `mériterais-je`) : 10,96 %, pire que ne rien faire ; une règle nommant l'époque ramène à 6,71 % | correctif (contrat de prompt) | **critique** | `integrations/llm.py` | — | **fait (code) — run de vérification en vision à faire** |
+| `VR-4` | Le prompt générique de `page_aligned` **modernise** le français du XVIIe (`meritay-je` → `mériterais-je`) : 10,96 %, pire que ne rien faire ; une règle nommant l'époque ramène à 6,71 % | correctif (contrat de prompt) | **critique** | `integrations/llm.py` | — | **fait et vérifié** : texte 10,96 → 6,71 % ; vision 6,29 → **4,39 %** (page entière), 6,19 → 4,23 % (composite). Sans la note, aucun producteur n'atteint le chiffre du script ; avec, tous le dépassent |
 | `VR-5` | Un séparateur de ligne dans une ligne rendue épuisait la page sous `characters` (4 retries, 1 descente, 19 lignes en `all_attempts_exhausted`) | bugfix | important | `producers/page_llm.py` | — | **fait (4d2c5c5)** |
 | `VR-6` | `hyphen_pair_fallback` touche 13 à 18 lignes par bras (5–7 %) ; on ne sait pas combien de bonnes corrections il coûte | mesure | important | `core/hyphenation.py` (lecture) | `VR-1` | **mesuré** : sur `page-vision·page`, 21 lignes (8 %), CER source 10,7 % gardé tel quel ; corrigées au taux des autres, le CER global passerait de 6,29 à ~5,87 % — 0,4 point. Le reste de l'écart avec le script (4,58 %) est dans la lecture des lignes corrigées (4,98 % contre 4,08 %), donc dans le prompt (`VR-4`) |
 | `VR-7` | Le profil `vision()` abaisse le plancher à 0,15 sans la portée page ; avec elle, le plancher bas est-il tenable ? | mesure puis décision | important | `core/schemas/policies.py` | `VR-1` | **mesuré** : `vision(attachment_scope="page")` sur `page-vision`, 6,03 % et **0** mal rattachée contre 6,17 % pour `GuardConfig(attachment_scope="page")` — le plancher 0,15 tient avec la portée page sur ce corpus (une ligne à 79 % d'erreur source récupérée). Décision proposée au mainteneur : `vision()` adopte `attachment_scope="page"` par défaut |
@@ -3349,6 +3349,11 @@ mesurent sur son run. Puis `VR-3` (petit, ferme un défaut silencieux),
 faite). Chaque item change soit ce que le modèle voit, soit ce que le garde
 accepte : **run de vérification à chaque fois**, sur les mêmes neuf pages,
 comparé au bras équivalent de `hans`.
+
+**Clôture (2026-09-24).** Les sept items sont faits ou mesurés. Reste une
+décision de mainteneur, issue de `VR-7` : faire de `attachment_scope="page"`
+le défaut du profil `vision()` — mesuré sûr (0 mal rattachée) et meilleur
+(4,19 % contre 4,39 %) sur ce corpus.
 
 ---
 
