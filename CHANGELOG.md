@@ -56,6 +56,15 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- **`with_corpus_notes(prompt, *notes)` et `CORPUS_NOTE_EARLY_MODERN_FRENCH`.**
+  Le prompt générique ne sait pas quel siècle il corrige : à travers le
+  pipeline sur OCR17+, `page_aligned` réécrivait `meritay-je` en
+  `mériterais-je` et `vn` en `un` malgré la règle « ne modernise pas » —
+  10,96 %, pire que ne rien faire (8,55 %). Une phrase de plus nommant
+  l'époque et le ſ long : 6,71 %. La note s'ajoute comme règle numérotée à
+  la suite du prompt de n'importe quel producteur et entre dans son
+  empreinte de configuration (`VR-4`).
+
 - `ChunkPlannerConfig(coalesce_blocks=True)` : à la granularité BLOCK, les
   groupes de régions consécutifs sont fusionnés en un chunk tant que les
   deux budgets tiennent. Défaut `False` (un chunk par groupe, comme avant).

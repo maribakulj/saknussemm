@@ -216,7 +216,45 @@ def edit_ops_from_response(
     return ops
 
 
+# ---------------------------------------------------------------------------
+# Corpus notes — what the generic prompt cannot know about the pages
+# ---------------------------------------------------------------------------
+
+#: The rule that stopped the model modernising seventeenth-century French.
+#: Measured through the pipeline on OCR17+ (9 pages, human ground truth,
+#: ``medium``): the generic page prompt, rule 5 "ne modernise pas" included,
+#: rewrote ``meritay-je`` as ``mériterais-je``, ``vn`` as ``un``, ``ie`` as
+#: ``je`` — 10.96 % character error, WORSE than the 8.55 % of doing
+#: nothing. This one sentence appended brought it to 6.71 %. "Historical"
+#: is not a period; the model needs to be told which one, and what it
+#: looks like.
+CORPUS_NOTE_EARLY_MODERN_FRENCH = (
+    "Ces pages sont des imprimés français des XVIe-XVIIe siècles : CONSERVE le "
+    "s long (ſ), les graphies d'époque (eſtoit, ie, vn, faſcheux) et la "
+    "ponctuation d'origine. Ne modernise rien, même quand la forme moderne "
+    "te paraît évidente."
+)
+
+
+def with_corpus_notes(system_prompt: str, *notes: str) -> str:
+    """``system_prompt`` with each note appended as a further numbered rule.
+
+    Every producer takes a ``system_prompt``; this is how a campaign says
+    what the generic prompt cannot — the period, the typography, the
+    language variety of THIS corpus. The numbering continues the prompt's
+    own list, so the note reads as one more absolute rule and not as an
+    afterthought. Producers fingerprint their prompt, so a note changes the
+    configuration fingerprint the run records, as it should.
+    """
+    prompt = system_prompt.rstrip()
+    numbered = [line for line in prompt.splitlines() if line[:2].rstrip(".").isdigit()]
+    start = len(numbered) + 1
+    rules = "\n".join(f"{start + i}. {note.strip()}" for i, note in enumerate(notes))
+    return f"{prompt}\n{rules}" if rules else prompt
+
+
 __all__ = [
+    "CORPUS_NOTE_EARLY_MODERN_FRENCH",
     "OUTPUT_JSON_SCHEMA",
     "SYSTEM_PROMPT",
     "UNCERTAINTY_PROMPT_SUFFIX",
@@ -225,4 +263,5 @@ __all__ = [
     "prompt_schema_fingerprint",
     "uncertainty_output_schema",
     "uncertainty_system_prompt",
+    "with_corpus_notes",
 ]
