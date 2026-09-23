@@ -3317,6 +3317,41 @@ item qui peut bloquer `P2` sans avertissement.
 
 ---
 
+## VR — Vus en run (2026-09-24)
+
+Le premier passage d'un corpus à vérité terrain (OCR17+, 9 pages, `medium`)
+**à travers le pipeline lui-même** — et non à côté, comme toutes les
+campagnes de `hans` jusque-là — a montré sept choses que les scripts ne
+pouvaient pas voir (`hans/docs/H16.md`, PR #166). Chacune est un item ici,
+avec la mesure qui l'a fait apparaître et celle qui dira qu'il est clos.
+Règle commune : **tout item qui change ce que le modèle voit ou ce que le
+garde accepte se vérifie par un run**, parce que les gardes, les retries et
+la descente de granularité font différer le résultat de celui du script.
+
+### Carte
+
+| ID | Titre | Nature | Gravité | Fichiers | Dépend de | Statut |
+|---|---|---|---|---|---|---|
+| `VR-1` | Aucun producteur ne donne au modèle **l'image de la page entière** — le levier de qualité mesuré (4,58 % contre 6,25–6,74 % pour les recadrages, zéro ligne mal rattachée) n'a pas de chemin dans la bibliothèque | **fonctionnalité** | **critique** | `producers/vision.py` | — | à faire |
+| `VR-2` | Le planificateur BLOCK fait **un chunk par groupe de régions** sans regrouper les petites : 105 chunks pour 251 lignes, bandes composites de 2–3 rangées | correctif (planificateur) | important | `core/planner.py`, `core/schemas/policies.py` | — | à faire |
+| `VR-3` | `VisionEditProducer` sans `max_images` déclaré envoie 19 recadrages ; le fournisseur refuse ; le pipeline **retente et redescend au lieu de découper** | correctif (configuration silencieuse) | important | `producers/vision.py` | — | à faire |
+| `VR-4` | Le prompt générique de `page_aligned` **modernise** le français du XVIIe (`meritay-je` → `mériterais-je`) : 10,96 %, pire que ne rien faire ; une règle nommant l'époque ramène à 6,71 % | correctif (contrat de prompt) | **critique** | `integrations/page.py`, `integrations/llm.py`, `docs/quickstart.md` | — | à faire |
+| `VR-5` | Un séparateur de ligne dans une ligne rendue épuisait la page sous `characters` (4 retries, 1 descente, 19 lignes en `all_attempts_exhausted`) | bugfix | important | `producers/page_llm.py` | — | **fait (4d2c5c5)** |
+| `VR-6` | `hyphen_pair_fallback` touche 13 à 18 lignes par bras (5–7 %) ; on ne sait pas combien de bonnes corrections il coûte | mesure | important | `core/hyphenation.py` (lecture) | `VR-1` | à faire |
+| `VR-7` | Le profil `vision()` abaisse le plancher à 0,15 sans la portée page ; avec elle, le plancher bas est-il tenable ? | mesure puis décision | important | `core/schemas/policies.py` | `VR-1` | à faire |
+
+### Ordre
+
+`VR-1` d'abord — c'est le producteur qui porte le gain, et `VR-6`/`VR-7` se
+mesurent sur son run. Puis `VR-3` (petit, ferme un défaut silencieux),
+`VR-2` (le composite ne peut pas être mesuré à sa vraie taille sans lui),
+`VR-4` (une constante et une phrase de documentation ; la mesure est déjà
+faite). Chaque item change soit ce que le modèle voit, soit ce que le garde
+accepte : **run de vérification à chaque fois**, sur les mêmes neuf pages,
+comparé au bras équivalent de `hans`.
+
+---
+
 ## Clos — déplacé dans `docs/history/`
 
 - `AUDIT-2026-07-13.md` + `PLAN-CORRECTIONS.md` — 37 findings, exécutés intégralement.
