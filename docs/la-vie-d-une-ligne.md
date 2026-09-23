@@ -113,6 +113,7 @@ la bibliothèque, pas une raison inédite.
 | `too_different_from_source` | la correction ne ressemble plus assez à la ligne OCR |
 | `closer_to_previous_line` | la correction ressemble plus à la ligne du dessus qu'à la sienne |
 | `closer_to_next_line` | idem, ligne du dessous |
+| `closer_to_another_line` | idem, une autre ligne de la page — seulement sous `GuardConfig(attachment_scope="page")`, qui étend la marge des deux voisines à toute la page |
 | `absorbs_previous_line` | la correction est « ligne précédente + cette ligne » concaténées |
 | `absorbs_next_line` | idem vers l'aval |
 

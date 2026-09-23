@@ -94,6 +94,9 @@ FALLBACK_REASON_CODES: frozenset[str] = frozenset(
         "too_different_from_source",
         "closer_to_previous_line",
         "closer_to_next_line",
+        # Sous ``attachment_scope="page"`` : une autre ligne de la page,
+        # ni la précédente ni la suivante.
+        "closer_to_another_line",
         "absorbs_previous_line",
         "absorbs_next_line",
         # Le défaut de `check_line` quand une branche de refus ne nomme pas

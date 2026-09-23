@@ -53,7 +53,7 @@ until it was moved to its caller.
 
 from __future__ import annotations
 
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import TypeVar
@@ -122,12 +122,82 @@ def _similarity(a: str, b: str) -> float:
 # ---------------------------------------------------------------------------
 
 
+def _is_twin(source_ocr: str, candidate: str, config: GuardConfig) -> bool:
+    """Whether ``candidate``'s source is a twin of this line's source.
+
+    Twins are exempt from the neighbour margin: the margin asks the
+    correction to resemble its own source MORE than any other line's, and
+    when two sources are (near-)identical that can never hold — yet a
+    mis-attachment between them changes nothing, since the texts are the
+    same. Off unless ``attachment_twin_similarity`` is set.
+    """
+    threshold = config.attachment_twin_similarity
+    return threshold is not None and _similarity(source_ocr, candidate) >= threshold
+
+
+def _closer_to_another_line(
+    source_ocr: str,
+    corrected: str,
+    sim_source: float,
+    *,
+    prev_ocr: str | None,
+    next_ocr: str | None,
+    other_ocr: Sequence[str],
+    features: ProposalFeatures,
+    config: GuardConfig,
+) -> AcceptanceResult | None:
+    """Guard 2 — the rejection when the correction is another line's text.
+
+    A mis-attached correction carries ANOTHER line's text, so it resembles
+    that line more than its own source, by more than the margin. The two
+    neighbours are the historical candidates and keep their own reason
+    codes and recorded similarities; ``other_ocr`` widens the set to the
+    page when the caller asks (``attachment_scope="page"``): a dropped or
+    split line shifts every line after it, and a model shown a column reads
+    across it, so the other line is often several lines away. Twins are
+    exempt (:func:`_is_twin`). ``None`` when nothing fires.
+    """
+    limit = sim_source + config.neighbour_margin
+    if prev_ocr is not None:
+        sim_prev = _similarity(prev_ocr, corrected)
+        features.prev_similarity = round(sim_prev, 4)
+        if sim_prev > limit and not _is_twin(source_ocr, prev_ocr, config):
+            return AcceptanceResult(
+                accepted=False,
+                text=source_ocr,
+                reason="closer_to_previous_line",
+                features=features,
+            )
+    if next_ocr is not None:
+        sim_next = _similarity(next_ocr, corrected)
+        features.next_similarity = round(sim_next, 4)
+        if sim_next > limit and not _is_twin(source_ocr, next_ocr, config):
+            return AcceptanceResult(
+                accepted=False,
+                text=source_ocr,
+                reason="closer_to_next_line",
+                features=features,
+            )
+    for other in other_ocr:
+        if _similarity(other, corrected) > limit and not _is_twin(
+            source_ocr, other, config
+        ):
+            return AcceptanceResult(
+                accepted=False,
+                text=source_ocr,
+                reason="closer_to_another_line",
+                features=features,
+            )
+    return None
+
+
 def check_line(
     source_ocr: str,
     corrected: str,
     prev_ocr: str | None = None,
     next_ocr: str | None = None,
     *,
+    other_ocr: Sequence[str] = (),
     config: GuardConfig = DEFAULT_GUARD_CONFIG,
 ) -> AcceptanceResult:
     """Decide whether *corrected* is safe to accept for *source_ocr*.
@@ -142,6 +212,12 @@ def check_line(
         OCR text of the previous line (if available).
     next_ocr : str | None
         OCR text of the next line (if available).
+    other_ocr : Sequence[str]
+        OCR text of every OTHER line the margin is held against beyond the
+        two neighbours — the rest of the page under
+        ``GuardConfig.attachment_scope="page"``. Empty (the default) keeps
+        the historical two-neighbour check. The caller decides the scope;
+        this function only knows the texts.
 
     Returns
     -------
@@ -174,27 +250,18 @@ def check_line(
         )
 
     # --- Guard 2: neighbour proximity ---
-    if prev_ocr is not None:
-        sim_prev = _similarity(prev_ocr, corrected)
-        features.prev_similarity = round(sim_prev, 4)
-        if sim_prev > sim_source + config.neighbour_margin:
-            return AcceptanceResult(
-                accepted=False,
-                text=source_ocr,
-                reason="closer_to_previous_line",
-                features=features,
-            )
-
-    if next_ocr is not None:
-        sim_next = _similarity(next_ocr, corrected)
-        features.next_similarity = round(sim_next, 4)
-        if sim_next > sim_source + config.neighbour_margin:
-            return AcceptanceResult(
-                accepted=False,
-                text=source_ocr,
-                reason="closer_to_next_line",
-                features=features,
-            )
+    migrated = _closer_to_another_line(
+        source_ocr,
+        corrected,
+        sim_source,
+        prev_ocr=prev_ocr,
+        next_ocr=next_ocr,
+        other_ocr=other_ocr,
+        features=features,
+        config=config,
+    )
+    if migrated is not None:
+        return migrated
 
     # --- Guard 3: absorption of adjacent line ---
     # Detects when the correction is source + neighbour concatenated.

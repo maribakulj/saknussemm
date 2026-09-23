@@ -32,6 +32,7 @@ import hashlib
 import io
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from saknussemm.core.confidence import DEFAULT_CONFUSIONS
@@ -55,13 +56,17 @@ from saknussemm.integrations.llm import (
 )
 
 __all__ = [
+    "COMPOSITE_VISION_SYSTEM_PROMPT",
+    "CompositeVisionEditProducer",
     "Crop",
     "ImagePart",
     "MultimodalStructuredClient",
     "VISION_SYSTEM_PROMPT",
     "VisionEditProducer",
     "build_image_asset",
+    "compose_line_strip",
     "crop_region",
+    "line_aliases",
     "verified_image_bytes",
 ]
 
@@ -548,3 +553,329 @@ class VisionEditProducer:
             lexicon=self._lexicon,
         )
         return EditScript(ops=ops), usage
+
+
+# ---------------------------------------------------------------------------
+# CompositeVisionEditProducer — one image per chunk, identity painted into it
+# ---------------------------------------------------------------------------
+
+
+COMPOSITE_VISION_SYSTEM_PROMPT = """\
+Tu es un moteur de correction post-OCR spécialisé dans les documents patrimoniaux.
+L'IMAGE montre les lignes d'un extrait de page, découpées et empilées ; chaque
+ligne est PRÉCÉDÉE À GAUCHE de son identifiant peint entre crochets, comme [K7QZP].
+Le JSON donne, pour chaque identifiant, le texte OCR de cette ligne.
+
+Règles absolues :
+1. Corrige chaque ligne d'après l'image de la ligne qui porte le MÊME identifiant.
+2. Conserve la langue source.
+3. Conserve l'orthographe historique quand elle est réellement présente à l'image \
+(ſ long, u pour v, ligatures) : ce n'est pas une erreur.
+4. Ne traduis rien.
+5. Ne modernise pas volontairement le texte.
+6. Ne fusionne jamais deux lignes.
+7. Ne scinde jamais une ligne.
+8. Ne déplace jamais du texte d'une ligne à l'autre.
+9. Chaque entrée line_id doit produire exactement une sortie avec le même line_id, \
+recopié tel quel.
+10. corrected_text doit contenir une seule ligne, sans caractère de saut de ligne.
+11. Retourne uniquement un JSON valide conforme au schéma fourni.
+12. En cas de doute ou d'image illisible, conserve le texte OCR (correction minimale).
+13. N'invente jamais un caractère absent de l'image (pas d'hallucination visuelle).\
+"""
+
+#: Characters an alias may use: no ``0``/``O`` and no ``1``/``I``, the pairs a
+#: model (or a person) confuses when reading a painted label back.
+_ALIAS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_ALIAS_LENGTH = 5
+
+
+def line_aliases(line_ids: Sequence[str]) -> dict[str, str]:
+    """A short opaque label per line id — deterministic, unique in the batch.
+
+    Why not the line id itself, and why not ``1, 2, 3``. Measured on a
+    six-column page of *Le Temps* (1890): given integers, a model that drops
+    one parasite line **renumbers** what follows, so 20 (and 142, with a
+    smaller model) lines came back under the wrong number. Given opaque
+    tokens it **copies** them, because it has no other way to produce
+    one — zero under the wrong label on the same page. A raw ALTO id
+    (``PAG_2_TL000075``) is opaque enough but long to paint at a legible
+    size; five characters from a hash of it are not.
+
+    Deterministic in the id (a rerun paints the same labels, so a crop hash
+    is reproducible) and unique within the batch: a collision takes the next
+    slice of the digest.
+    """
+    aliases: dict[str, str] = {}
+    taken: set[str] = set()
+    for line_id in line_ids:
+        digest = hashlib.sha256(line_id.encode("utf-8")).digest()
+        chars = [_ALIAS_ALPHABET[b % len(_ALIAS_ALPHABET)] for b in digest]
+        for start in range(0, len(chars) - _ALIAS_LENGTH + 1):
+            candidate = "".join(chars[start : start + _ALIAS_LENGTH])
+            if candidate not in taken:
+                break
+        else:  # pragma: no cover - 32 slices of a digest do not all collide
+            candidate = f"{chars[0]}{len(taken):04d}"
+        aliases[line_id] = candidate
+        taken.add(candidate)
+    return aliases
+
+
+def compose_line_strip(
+    rows: Sequence[tuple[str, Crop]],
+    *,
+    row_height: int = 44,
+    label_width: int = 230,
+    gap: int = 10,
+    max_row_width: int = 1800,
+    max_side: int = 2048,
+    encode_format: str = "PNG",
+) -> Crop:
+    """Stack line crops into one image, each row labelled with its alias.
+
+    The identity of a line is painted INTO the pixels, on the left of the
+    ink it names, so a model that pairs by the image — and they do: shown a
+    crop with a stray neighbour, a model transcribes top to bottom and
+    fills the labels in order — pairs each reading with the right label.
+    Nothing the model was not sent can appear in the strip: every row is a
+    crop of exactly one line.
+
+    Deterministic in its inputs (same crops, same labels, same knobs → the
+    same bytes, hence the same ``sha256``), like :func:`crop_region`. The
+    strip is downscaled only when a side would exceed ``max_side``; the
+    caller keeps rows legible by keeping chunks short — 20 rows of 44 px is
+    the measured sweet spot, and :class:`CompositeVisionEditProducer` bounds
+    it through the batcher.
+    """
+    from PIL import Image, ImageDraw, ImageFont  # lazy — I4
+
+    decoded = []
+    for label, crop in rows:
+        with Image.open(io.BytesIO(crop.data)) as raw:
+            image = raw.convert("RGB")
+        scale = row_height / max(1, image.height)
+        width = max(1, min(max_row_width, int(round(image.width * scale))))
+        decoded.append(
+            (label, image.resize((width, row_height), Image.Resampling.LANCZOS))
+        )
+
+    strip_w = label_width + max((img.width for _, img in decoded), default=1) + gap
+    strip_h = len(decoded) * (row_height + gap) + gap
+    canvas = Image.new("RGB", (strip_w, strip_h), "white")
+    draw = ImageDraw.Draw(canvas)
+    try:
+        font = ImageFont.load_default(size=int(row_height * 0.68))
+    except TypeError:  # pragma: no cover - Pillow < 10.1 has no sized default
+        font = ImageFont.load_default()
+    y = gap
+    for label, image in decoded:
+        draw.text((8, y + 4), f"[{label}]", fill=(160, 0, 0), font=font)
+        canvas.paste(image, (label_width, y))
+        draw.line(
+            (0, y + row_height + gap // 2, strip_w, y + row_height + gap // 2),
+            fill=(200, 200, 200),
+            width=1,
+        )
+        y += row_height + gap
+
+    if max(canvas.size) > max_side:
+        factor = max_side / max(canvas.size)
+        canvas = canvas.resize(
+            (max(1, int(canvas.width * factor)), max(1, int(canvas.height * factor))),
+            Image.Resampling.LANCZOS,
+        )
+    buffer = io.BytesIO()
+    canvas.save(buffer, format=encode_format)
+    data = buffer.getvalue()
+    return Crop(
+        data=data,
+        media_type=f"image/{encode_format.lower()}",
+        sha256=_sha256(data),
+        pixel_box=(0, 0, canvas.width, canvas.height),
+    )
+
+
+class CompositeVisionEditProducer:
+    """A vision producer that sends ONE labelled strip per chunk.
+
+    :class:`VisionEditProducer` sends one crop per line and the line id in
+    the text; identity travels beside the pixels. This producer paints it
+    into them (:func:`compose_line_strip`) and sends the strip as a single
+    image with a lean JSON of ``{line_id, ocr_text, hyphenation_role}``
+    entries keyed by the same painted alias (:func:`line_aliases`).
+
+    Why. Measured on 5 111 lines of 1930s press (NewsEye, human ground
+    truth): with ids in the text only, a model shown a column crop
+    transcribed the image top to bottom and filled the ids in order — 1 746
+    lines came back under the wrong id. With the ids painted beside the ink
+    and 20 rows per strip: 84. The character error rate went from 39 % to
+    6.4 % without any guard, and every remaining mis-attachment fell to the
+    page-scope neighbour margin (``GuardConfig(attachment_scope="page")``),
+    which is the guard profile to pair this producer with.
+
+    Row count is bounded through the existing image cap: the batcher splits
+    any chunk longer than ``capabilities.max_images`` lines, and here one
+    line is one row, so ``max_lines`` is declared as ``max_images``. Twenty
+    is the measured knee — 40 rows doubled the drift, 10 cost twice the
+    calls for 0.1 point.
+
+    Everything after the reply is shared with the other LLM-shaped
+    producers: the aliases are mapped back to real line ids and the same
+    :func:`~saknussemm.integrations.llm.edit_ops_from_response` shapes the
+    ops, so validator, guards and retries behave identically downstream. A
+    reply under an alias this chunk never painted yields no op, the
+    validator reports the line missing, and the retry machinery takes over.
+    """
+
+    wants_geometry: bool = True
+    wants_image: bool = True
+    requires_full_coverage: bool = True
+
+    def __init__(
+        self,
+        provider: MultimodalStructuredClient,
+        api_key: str,
+        model: str,
+        *,
+        system_prompt: str | None = None,
+        max_lines: int = 20,
+        row_height: int = 44,
+        margin_ratio: float = 0.05,
+        mask_polygon: bool = False,
+    ) -> None:
+        if max_lines < 1:
+            raise ConfigurationError("max_lines must be at least 1")
+        self._provider = provider
+        self._api_key = api_key
+        self._model = model
+        self._row_height = row_height
+        self._margin_ratio = margin_ratio
+        self._mask_polygon = mask_polygon
+        self._system_prompt = (
+            COMPOSITE_VISION_SYSTEM_PROMPT if system_prompt is None else system_prompt
+        )
+        #: The line-keyed schema, not a parameter: the reply is keyed by the
+        #: painted aliases and mapped back here, so a caller-supplied shape
+        #: could not be un-aliased.
+        self._output_schema = OUTPUT_JSON_SCHEMA
+        #: One strip per call, so a provider's per-call image cap never
+        #: binds; what ``max_images`` bounds here is the ROW count, through
+        #: the batcher that already splits image-bearing chunks.
+        self.capabilities = ModelCapabilities(
+            text=True, vision=True, structured_output=True, max_images=max_lines
+        )
+        self.metadata = ProducerMetadata(
+            name="vision-composite",
+            implementation=model,
+            configuration_fingerprint=prompt_schema_fingerprint(
+                self._system_prompt,
+                {
+                    "output_schema": self._output_schema,
+                    "max_lines": max_lines,
+                    "row_height": row_height,
+                    "margin_ratio": margin_ratio,
+                    "mask_polygon": mask_polygon,
+                },
+            ),
+        )
+
+    async def produce(
+        self, payload: CorrectionRequest, *, options: ProducerOptions
+    ) -> tuple[EditScript, Usage | None]:
+        asset = payload.image_ref
+        if not isinstance(asset, ImageAsset):
+            raise ConfigurationError(
+                "CompositeVisionEditProducer requires a structured ImageAsset "
+                "page image (build it with build_image_asset), not a bare "
+                f"ImageRef; got {type(asset).__name__}"
+            )
+        page_bytes = verified_image_bytes(asset)
+        aliases = line_aliases([line.line_id for line in payload.lines])
+        rows: list[tuple[str, Crop]] = []
+        for line in payload.lines:
+            if line.geometry is None:
+                continue
+            crop = crop_region(
+                asset,
+                line.geometry.coords,
+                margin_ratio=self._margin_ratio,
+                mask_polygon=self._mask_polygon,
+                source_bytes=page_bytes,
+            )
+            rows.append((aliases[line.line_id], crop))
+        if payload.lines and not rows:
+            raise ConfigurationError(
+                "CompositeVisionEditProducer received no line geometry for "
+                f"page {payload.page_id!r}: none of its {len(payload.lines)} "
+                "lines could be cropped, so the model would be asked to "
+                "correct from text alone while the run reports a vision "
+                "producer. Enrich the chunk with geometry or route these "
+                "lines to a text producer."
+            )
+        strip = compose_line_strip(rows, row_height=self._row_height)
+        user_payload: dict[str, Any] = {
+            "task": payload.task,
+            "document_id": payload.document_id,
+            "page_id": payload.page_id,
+            "lines": [
+                {
+                    "line_id": aliases[line.line_id],
+                    "ocr_text": line.ocr_text,
+                    **(
+                        {"hyphenation_role": line.hyphenation_role}
+                        if line.hyphenation_role
+                        else {}
+                    ),
+                }
+                for line in payload.lines
+            ],
+        }
+        raw, usage = await self._provider.complete_structured_multimodal(
+            api_key=self._api_key,
+            model=self._model,
+            system_prompt=self._system_prompt,
+            user_payload=user_payload,
+            images=[
+                ImagePart(
+                    line_id="strip",
+                    media_type=strip.media_type,
+                    data=strip.data,
+                    sha256=strip.sha256,
+                )
+            ],
+            json_schema=self._output_schema,
+            temperature=options.temperature,
+        )
+        ops = edit_ops_from_response(
+            _unalias_response(raw, {alias: lid for lid, alias in aliases.items()}),
+            source_by_id={ln.line_id: ln.ocr_text for ln in payload.lines},
+        )
+        return EditScript(ops=ops), usage
+
+
+def _unalias_response(raw: object, id_by_alias: Mapping[str, str]) -> object:
+    """The reply with painted aliases mapped back to real line ids.
+
+    An entry under an alias this chunk never painted is dropped rather than
+    guessed: the validator then reports its line missing and the retry
+    machinery takes over, which is the documented path for a malformed
+    reply. The alias is matched case-insensitively, because a model reading
+    a painted label back sometimes lowercases it and nothing else changes.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    lines = raw.get("lines")
+    if not isinstance(lines, list):
+        return raw
+    folded = {alias.upper(): line_id for alias, line_id in id_by_alias.items()}
+    kept: list[object] = []
+    for entry in lines:
+        if not isinstance(entry, dict):
+            continue
+        alias = entry.get("line_id")
+        line_id = folded.get(alias.strip().upper()) if isinstance(alias, str) else None
+        if line_id is None:
+            continue
+        kept.append({**entry, "line_id": line_id})
+    return {**raw, "lines": kept}

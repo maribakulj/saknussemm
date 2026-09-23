@@ -51,6 +51,17 @@ simplification est un échec de l'étape.
 La réécriture est invoquée sans arguments de provenance, donc ces empreintes
 sont indépendantes de la version de la bibliothèque.
 
+**Trente empreintes ont bougé le 2026-09-24, et pour une raison classée.**
+``GuardConfig`` a gagné deux champs (``attachment_scope``,
+``attachment_twin_similarity``, défauts inertes), donc son
+``policy_fingerprint()`` change, donc le ``config …`` estampillé dans le
+``processingStep`` de chaque fichier livré change. Classé TextLine par
+TextLine sur les 30 sorties ``probe``/``drift`` contre ``main`` : **toutes
+les TextLine sont identiques**, seule la ligne de provenance diffère.
+C'est le cas que ``docs/versioning.md`` prévoit — un changement de
+politique, non cassant, nommé au CHANGELOG. Les scénarios ``identity`` et
+``scripted`` ne passent pas par le pipeline et n'ont pas bougé.
+
 **Deux empreintes ont bougé le 2026-08-25, et pour un défaut réel.**
 ``_compute_geometry`` pesait ses tokens en flottants — ``0.6`` par caractère
 d'espace — et sommait ces poids avec ``sum()``. CPython 3.12 a donné à
@@ -216,11 +227,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "sample.xml",
         "probe",
-    ): "bc4b78ddb606baf74cd031e1502a32e0effe555e1ce80326ced38691014df488",
+    ): "fd48476f657eabbecbbe74ccab9504f6026c0018b1f6f33f873d4f4522bd8402",
     (
         "sample.xml",
         "drift",
-    ): "e283b7c29f7a6c5e4cbf1dda7222cbe3705cb1e5e938e1e9ff75d1ad59c43411",
+    ): "13015d68201f3ecb42ff8425db09da12c1d7c5d406fe6f4d9ec8f439a2726768",
     (
         "X0000002.xml",
         "identity",
@@ -232,11 +243,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "X0000002.xml",
         "probe",
-    ): "14f01f377e059392a4f8abd2bf89b5a4ce19410a34478114318add0dabbe1b72",
+    ): "32b22050bce25e22a7aaf0da9214c6299dbc501c2ce52e36490980ecaeff95b0",
     (
         "X0000002.xml",
         "drift",
-    ): "ca6500002e33a3320f2611abae193e1ec2b0f0651c9f809ff388c46f2664f9e8",
+    ): "91d9ce898acbfb23ea928e0ce84bcd132c3f4a8fd715eb4cdf43f825bb2ac51e",
     (
         "bnf-alto-prod-bpt6k5406037v-f40.xml",
         "identity",
@@ -248,11 +259,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bnf-alto-prod-bpt6k5406037v-f40.xml",
         "probe",
-    ): "aa39bf9f41c56266ae6d96a6239caec241377869ddd3e3cfabdb19547f523904",
+    ): "2e3c21401e3d27ab23800bac4752a0698d72a631273b876446a0f5dd91a2abc8",
     (
         "bnf-alto-prod-bpt6k5406037v-f40.xml",
         "drift",
-    ): "db66a2bfe416de94c8533f020395308598e73c3b0ba8c08ba9ac77ea303fa689",
+    ): "c793a2c3bc794220e1eb3315fa607f80fec98d07ecd30b0c6a80a16ec07468d4",
     (
         "bnf-alto-prod-latin1-control.xml",
         "identity",
@@ -264,11 +275,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bnf-alto-prod-latin1-control.xml",
         "probe",
-    ): "aa39bf9f41c56266ae6d96a6239caec241377869ddd3e3cfabdb19547f523904",
+    ): "2e3c21401e3d27ab23800bac4752a0698d72a631273b876446a0f5dd91a2abc8",
     (
         "bnf-alto-prod-latin1-control.xml",
         "drift",
-    ): "db66a2bfe416de94c8533f020395308598e73c3b0ba8c08ba9ac77ea303fa689",
+    ): "c793a2c3bc794220e1eb3315fa607f80fec98d07ecd30b0c6a80a16ec07468d4",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_alto4.xml",
         "identity",
@@ -280,11 +291,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_alto4.xml",
         "probe",
-    ): "283d69986ebacf4f54c5451166c241cad66684cf356c66bd10a42cc56271c10f",
+    ): "0d7c7509cb7668f8b77e890cbc5c12a147dbaaad1f771d912bcb8823022fc328",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_alto4.xml",
         "drift",
-    ): "7e8b6860d3def6d5cd5bb5882d0874b95e3a226cfbc8728ebbbbeedd52472d49",
+    ): "b961ae592ee61f326b7a9ff4d227053ce83f5de91f26a6929842928b291c37b6",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_corrected.xml",
         "identity",
@@ -296,11 +307,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_corrected.xml",
         "probe",
-    ): "b2e56be863fd1613ac927a36de3177db8c4c50d0f90cc7e278d96bdb142c404e",
+    ): "790a21a1d57a9bfcb114fe53a7ab9ae5d6c2dcc0f95aae2041b00fed93ca3b1d",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_corrected.xml",
         "drift",
-    ): "af278477054cd518901532c28d6bd8000ff7168a55b96dc71334f502f16e7428",
+    ): "6752cac613ede72e02363512873ca3db467742a9371c1b3d8302b3c78356cc56",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_raw.xml",
         "identity",
@@ -312,11 +323,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_raw.xml",
         "probe",
-    ): "440e64e65ca4f691990f54773b3e7f96ca2831d2275a486ac14ea297f337ca52",
+    ): "efd613f0cf6cc148fcb897e75b4cd26acce7c1629192792f8a49820bf33449bf",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_raw.xml",
         "drift",
-    ): "b87af7672359786edb36afac881982a36d7fa0ab3f677cef30bbe3ae7e9b4ccb",
+    ): "6c63c4166eaff50af2ceaa52a1aad31390b8cd475fe8799149ad775cf0fa5730",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_alto4.xml",
         "identity",
@@ -328,11 +339,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_alto4.xml",
         "probe",
-    ): "2717e24643db47fb68e40d264ee141924b7310ea3d4f3fa957ccbc573d498fa4",
+    ): "553204ffa6e297f3b86e3ac822dc89fa7f63bef132cd18334cdd52ec99387814",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_alto4.xml",
         "drift",
-    ): "c2ef84ec56fe25423f77866097cf7c1cce2dd7faad3b931fb8bcd6e69e5a02e5",
+    ): "cd4d7dd840e831568f4b37042e992cafafdbe55fb7287677db72a3a12a8377ba",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_corrected.xml",
         "identity",
@@ -344,11 +355,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_corrected.xml",
         "probe",
-    ): "a43bfd57a9cc6ad3cfc26922b3e975c5a314fb94aa4bee17d50272dd710778da",
+    ): "91718922ff9b17b16cb6c03c97986d9b9ba9a138a8dbbfa957026690b465cf6e",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_corrected.xml",
         "drift",
-    ): "1962c7ff5d8ad66f7f6442abb8902716b7793277ea7254f083e41526b00ce3d3",
+    ): "47b15b2a9334f7fc1f6e14fc47e177b4c64030277e3d8219e1561c8bd17480e9",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_raw.xml",
         "identity",
@@ -360,11 +371,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_raw.xml",
         "probe",
-    ): "e273026f06525e927aff04de69d9800e0865467d8700da74260890027ac91764",
+    ): "968ceeec3f2e34b72ee86656d3cb15bc14ab0f02efcf78d1ee4a8096f91f225e",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_raw.xml",
         "drift",
-    ): "bba699cf36c5f92097c30a2ffaf4180fc0145cb9d7763705b542df62ecd04a5d",
+    ): "901c87324d8a1f0651d0830f966e74348112dc9a25d8b1682ab96c653a61daa8",
     (
         "0250199004.xml",
         "identity",
@@ -376,11 +387,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "0250199004.xml",
         "probe",
-    ): "2a31190edddd2ce4e64adf635be2af1f749b86fe515e8ba4d1c5e2e3aa648e99",
+    ): "091cc6fc48e277f80b1ca8a49a5a3d12860bf551f56280acbcb5e17f0fa97b06",
     (
         "0250199004.xml",
         "drift",
-    ): "cb6181b9ac38eddff94639be0ea94108f99a302dbf59cc9773b95779f96d7901",
+    ): "55fe60309b550182f52e33b68f55550a42d6eed2d3846fb962d7c06e2ccffa19",
     (
         "0253902003.xml",
         "identity",
@@ -392,11 +403,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "0253902003.xml",
         "probe",
-    ): "f28531d31d08feb66352696293b0d44200bb373ba50f6c325eb4406d4c43420a",
+    ): "2e97a59f53bef33ac5a3bf3207a55e167e2c4fb43b9247faa2e4fc3aaf3a9113",
     (
         "0253902003.xml",
         "drift",
-    ): "51e09b0401530943682592bf8ebe57c3a8b96f50b030006583fbafecd917e723",
+    ): "aa5a47cf3e7ae0d1bc0d2d06d141d4be8ea62ee2332213604fb76bf7089434fa",
     (
         "bpt6k2206225_p0015.alto.xml",
         "identity",
@@ -408,11 +419,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k2206225_p0015.alto.xml",
         "probe",
-    ): "786ed9629c10daf5386d99bef03ffcbda66e7bd0e7034bdcecf6e70f169ace43",
+    ): "768047875cfa91b770ead6bdf12180f32f949070d5e2ba9a36540adf61f7197a",
     (
         "bpt6k2206225_p0015.alto.xml",
         "drift",
-    ): "850a59d007fe1f27930b9f58975737bf335b3bb2e60eea0ef45741e583d2da6c",
+    ): "d213318c706ddc40c468fd9dcc3c266398be00552812bf65123d2fc3f6f99bf1",
     (
         "bpt6k2324031_p0002.alto.xml",
         "identity",
@@ -424,11 +435,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k2324031_p0002.alto.xml",
         "probe",
-    ): "7898ad7b96a3370f866db9022642f7a84cf0e696205c33ac5db097d850b0fb03",
+    ): "ac5fc26abc847b5f4a064041b5469e82e6c871efdad0047129a7ea783d71925a",
     (
         "bpt6k2324031_p0002.alto.xml",
         "drift",
-    ): "2f6a96e4d0a328070b91cd5d4f267d24271ae4416aa7a4a7bc2044f439a71149",
+    ): "d86660f91b81ef0cbf86d9c9a4780303b0354f263a672c1421a81643e9941bd7",
     (
         "bpt6k6478860m_p0009.alto.xml",
         "identity",
@@ -440,11 +451,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k6478860m_p0009.alto.xml",
         "probe",
-    ): "a3174249e708fc0dc0b19fbf115a28be14a4b43d98bd6715172c3076e8cd367a",
+    ): "7f452ee7c73fb66d8b110b7809daec9f7c8e92e509ef0f16fb57de69df7bfdb0",
     (
         "bpt6k6478860m_p0009.alto.xml",
         "drift",
-    ): "79458c995e133af4687f30800bc24387abe1c733d9009dfb33ca73d9fe8e0510",
+    ): "e68263d65ad6e691a578a661fae8c16199eb8791294eceeb9edd81c5d57a9f5d",
 }
 
 

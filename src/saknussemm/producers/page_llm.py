@@ -90,8 +90,16 @@ class PageLLMEditProducer:
         #: source boundaries and never refuses. The second corrects better
         #: (3.7% against 6.4% distance to ground truth — the measurement is
         #: in :func:`~saknussemm.core.page_alignment.reproject_page_lines`)
-        #: but assumes an in-order stream; what catches it otherwise is the
-        #: ``min_source_similarity`` guard, downstream.
+        #: but assumes an in-order stream — and NOTHING in it verifies that
+        #: assumption. It places every returned character somewhere, so a
+        #: stream that is not the page's lines (a model that transcribed a
+        #: column crop instead of correcting the list) is cut onto the
+        #: source boundaries anyway: measured at 46 % character error and
+        #: 201 lines carrying another line's text on 5 111 lines of 1930s
+        #: press, against 11 % untouched. Never run it without the
+        #: page-scope neighbour margin, ``GuardConfig(attachment_scope=
+        #: "page")``, which took those 201 to one — and that one was a
+        #: garbled ground truth, not a mis-attachment.
         #:
         #: The default stays ``"jaccard"``: the measurement covers nine
         #: pages, and changing shipped behaviour is a maintainer's call, not

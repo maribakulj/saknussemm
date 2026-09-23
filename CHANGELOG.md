@@ -56,6 +56,50 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- **La marge de voisinage peut porter sur toute la page.**
+  `GuardConfig(attachment_scope="page")` tient le garde 2 de `check_line`
+  — « la correction ressemble plus à une autre ligne qu'à la sienne » —
+  contre chaque ligne de la page et non plus contre les deux voisines, avec
+  le code de refus `closer_to_another_line`. Le défaut reste `"adjacent"`.
+
+  Pourquoi. Une ligne mal rattachée porte le texte d'une AUTRE ligne, et
+  cette autre ligne n'est pas toujours voisine : un modèle qui supprime ou
+  coupe une ligne décale toutes les suivantes, et un modèle à qui l'on
+  montre une colonne la lit en travers. Mesuré sur 5 111 lignes de presse
+  des années 1930 à vérité terrain humaine : les décalages se concentrent à
+  ±1 mais vont jusqu'à ±15 ; la portée voisine en laissait passer 1 746, la
+  portée page zéro. Sur 12 000 lignes de quatre corpus, avec les deux
+  nombres inchangés (plancher 0,35, marge 0,15) : zéro ligne mal rattachée.
+  Le prix monte avec le bruit de la source — 5 % de refus sur un OCR propre,
+  la moitié des corrections à 60 % d'erreur simulée.
+
+  `attachment_twin_similarity` (défaut `None`) exempte de la marge les
+  lignes jumelles — deux didascalies nommant le même personnage — entre
+  lesquelles un échange est sans dommage et la marge impossible à tenir. À
+  0,85 sur OCR17+, il rend la moitié des refus (CER 4,58 → 4,31 %) sans
+  laisser passer une ligne ; dessiné après avoir vu les échecs, il reste une
+  option.
+
+- **`CompositeVisionEditProducer` : une seule image par bloc, l'identité
+  peinte dedans.** Chaque ligne est recadrée séparément, les recadrages
+  sont empilés en une bande (`compose_line_strip`), chaque rangée précédée
+  de son alias opaque peint en rouge (`line_aliases`), et le JSON porte les
+  mêmes alias. `max_lines` (20) est déclaré comme `max_images` : le batcher
+  existant borne ainsi le nombre de rangées sans code nouveau.
+
+  Pourquoi. Le modèle apparie par l'image, pas par le texte : avec les
+  identifiants dans le texte seulement, sur la même presse des années 1930,
+  il transcrit le recadrage de haut en bas et remplit les identifiants dans
+  l'ordre — 1 746 lignes sous le mauvais identifiant. Peints à côté de
+  l'encre, en bandes de 20 : 84, et un CER de 39 % à 6,4 % sans garde. Les
+  entiers ne conviennent pas comme alias : après une suppression, le modèle
+  renumérote ; un jeton opaque, il le recopie.
+
+- `PageLLMEditProducer(line_matching="characters")` documente qu'il ne
+  vérifie pas l'hypothèse d'ordre dont il dépend et ne doit jamais tourner
+  sans `attachment_scope="page"` : sur un flux qui n'est plus la page, il
+  découpe quand même — 46 % de CER mesuré.
+
 - **Le mode `page_aligned` peut retrouver l'identité de ligne au CARACTÈRE,
   pas seulement par jetons.** `core.page_alignment.reproject_page_lines`
   recoupe le flux rendu sur les frontières des lignes source, et

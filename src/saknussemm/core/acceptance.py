@@ -109,6 +109,38 @@ def _entering(
         order.entering(step, requires=requires)
 
 
+def _margin_candidates(
+    lm: LineManifest,
+    all_lines_by_id: dict[str, LineManifest],
+    *,
+    page_scope: bool,
+) -> tuple[str | None, str | None, list[str]]:
+    """The texts the neighbour margin is held against for ``lm``.
+
+    The previous and next line as before; under ``attachment_scope="page"``
+    every other line of the page as well — ``all_lines_by_id`` is the
+    workspace's page index, so this IS the page.
+    """
+    prev_ocr = (
+        all_lines_by_id[lm.prev_line_id].ocr_text
+        if lm.prev_line_id and lm.prev_line_id in all_lines_by_id
+        else None
+    )
+    next_ocr = (
+        all_lines_by_id[lm.next_line_id].ocr_text
+        if lm.next_line_id and lm.next_line_id in all_lines_by_id
+        else None
+    )
+    if not page_scope:
+        return prev_ocr, next_ocr, []
+    excluded = {lm.line_id, lm.prev_line_id, lm.next_line_id}
+    return (
+        prev_ocr,
+        next_ocr,
+        [o.ocr_text for o in all_lines_by_id.values() if o.line_id not in excluded],
+    )
+
+
 def _apply_line_acceptance(
     *,
     guard_config: GuardConfig,
@@ -127,7 +159,11 @@ def _apply_line_acceptance(
          fall back to OCR to keep the marker.
       2. Centralised :func:`check_line` with prev/next context — the
          single source of truth for "is this correction acceptable?".
+         Under ``attachment_scope="page"`` every other line of the page
+         is a candidate too; ``all_lines_by_id`` IS the page (it is the
+         workspace's index), so the list is built once per chunk here.
     """
+    page_scope = guard_config.attachment_scope == "page"
     for lm in chunk_lines:
         if lm.corrected_text is not None:
             continue
@@ -173,18 +209,16 @@ def _apply_line_acceptance(
             decide.fall_back(lm, reason="hyphen_partner_fell_back", traces=traces)
             continue
 
-        prev_ocr = (
-            all_lines_by_id[lm.prev_line_id].ocr_text
-            if lm.prev_line_id and lm.prev_line_id in all_lines_by_id
-            else None
-        )
-        next_ocr = (
-            all_lines_by_id[lm.next_line_id].ocr_text
-            if lm.next_line_id and lm.next_line_id in all_lines_by_id
-            else None
+        prev_ocr, next_ocr, other_ocr = _margin_candidates(
+            lm, all_lines_by_id, page_scope=page_scope
         )
         result = check_line(
-            lm.ocr_text, corrected, prev_ocr, next_ocr, config=guard_config
+            lm.ocr_text,
+            corrected,
+            prev_ocr,
+            next_ocr,
+            other_ocr=other_ocr,
+            config=guard_config,
         )
         if result.accepted:
             decide.accept(lm, result.text, traces=traces)

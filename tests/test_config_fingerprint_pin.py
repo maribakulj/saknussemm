@@ -74,11 +74,11 @@ def test_config_fingerprint_is_pinned():
     (the vision/QE programme token_realign gate — default ``None`` keeps
     behaviour identical; the FIELD joins the fingerprinted surface,
     recorded in CHANGELOG under [Unreleased])."""
-    assert _default_pipeline().config_fingerprint() == "15dc07cba9122106"
+    assert _default_pipeline().config_fingerprint() == "8035af05be00aedd"
 
 
 def test_each_policy_fingerprint_is_pinned():
-    assert GuardConfig().policy_fingerprint() == "48fef9e0d6feb681"
+    assert GuardConfig().policy_fingerprint() == "32bf7bf6e915f388"
     # The remaining four are pinned by-shape: any default change trips the
     # composite above, and these lock each policy independently.
     for policy in (ChunkPlannerConfig(), LossPolicy(), PairingPolicy(), RetryPolicy()):
@@ -90,6 +90,8 @@ def test_each_policy_fingerprint_is_pinned():
 
 
 _GUARD_FIELDS = {
+    "attachment_scope",
+    "attachment_twin_similarity",
     "absorption_concat_similarity",
     "absorption_length_ratio",
     "boundary_len_ratio_max",
@@ -118,7 +120,7 @@ def test_guard_config_field_set_is_frozen():
     """21 knobs today. Removing one is a public-API break (each field is
     provenance-fingerprinted, §11) → deliberate edit here + a version bump."""
     assert set(GuardConfig.model_fields) == _GUARD_FIELDS
-    assert len(_GUARD_FIELDS) == 21
+    assert len(_GUARD_FIELDS) == 23
 
 
 def test_per_stage_twin_knobs_are_intentional_not_duplication():

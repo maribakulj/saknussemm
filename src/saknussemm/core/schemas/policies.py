@@ -109,6 +109,29 @@ class GuardConfig(FrozenPolicy):
     #: Reject if the correction resembles a neighbour more than its own
     #: source by at least this margin (text migration suspected).
     neighbour_margin: float = Field(default=0.15, ge=0.0, le=1.0)
+    #: Which lines the margin is held against. ``"adjacent"`` (the
+    #: historical behaviour) compares the correction with the previous and
+    #: next line only; ``"page"`` compares it with EVERY other line of the
+    #: page. The wider scope exists because a mis-attached line is not
+    #: always a neighbour's text: a model that drops or splits one line
+    #: shifts everything after it, and a model shown a column reads across
+    #: it — measured on 5 111 lines of 1930s press, the offsets clustered at
+    #: ±1 but ran to ±15, and the adjacent scope let 1 746 of them through
+    #: where the page scope let none. The wider scope costs one similarity
+    #: per other line of the page per changed line, and refuses more on
+    #: pages whose lines repeat (twins — see the next field).
+    attachment_scope: Literal["adjacent", "page"] = "adjacent"
+    #: Exempt from the margin any candidate line whose OWN source already
+    #: resembles this line's source at least this much — two stage
+    #: directions naming the same character, a repeated verse. Between such
+    #: twins a mis-attachment is harmless by construction (the texts are
+    #: the same), while the margin can never be held (the correction equals
+    #: the other source). ``None`` (the default) exempts nothing. Measured
+    #: at 0.85 on OCR17+: it returns half of the margin's refusals and
+    #: still lets no mis-attachment through on any measured corpus — but it
+    #: was designed after seeing which lines failed, so it stays an option
+    #: until confirmed on a corpus it has never seen.
+    attachment_twin_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     #: Two adjacent corrections are duplicates above this similarity …
     duplicate_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     #: … but only when their sources were below this (genuinely distinct).
