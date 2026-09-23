@@ -3322,7 +3322,7 @@ item qui peut bloquer `P2` sans avertissement.
 Le premier passage d'un corpus à vérité terrain (OCR17+, 9 pages, `medium`)
 **à travers le pipeline lui-même** — et non à côté, comme toutes les
 campagnes de `hans` jusque-là — a montré sept choses que les scripts ne
-pouvaient pas voir (`hans/docs/H16.md`, PR #166). Chacune est un item ici,
+pouvaient pas voir (dépôt `hans`, rapport `H16` ; PR #166). Chacune est un item ici,
 avec la mesure qui l'a fait apparaître et celle qui dira qu'il est clos.
 Règle commune : **tout item qui change ce que le modèle voit ou ce que le
 garde accepte se vérifie par un run**, parce que les gardes, les retries et
