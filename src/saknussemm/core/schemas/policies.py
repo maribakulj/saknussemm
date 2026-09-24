@@ -241,11 +241,13 @@ class GuardConfig(FrozenPolicy):
     def vision(cls, **overrides: Any) -> "GuardConfig":
         """The VLM guard profile (§5.2 bis, the vision/QE programme).
 
-        Relaxes ONLY the Stage-C source-similarity floor
-        (:attr:`min_source_similarity`); every inter-line migration guard
-        — neighbour proximity, absorption, hyphen-pair drift, duplication
-        — keeps its text default, because a VLM must no more merge or move
-        lines than a text model. An explicit override always wins, so a
+        Relaxes the Stage-C source-similarity floor
+        (:attr:`min_source_similarity`) and, since ``VR-7``, holds the
+        neighbour margin against the WHOLE page (:attr:`attachment_scope`)
+        — the margin is what makes the low floor safe. Every other
+        inter-line migration guard — absorption, hyphen-pair drift,
+        duplication — keeps its text default, because a VLM must no more
+        merge or move lines than a text model. An explicit override always wins, so a
         host that has run the vision benchmark can pin its own calibrated
         floor: ``GuardConfig.vision(min_source_similarity=0.22)``.
 
@@ -254,7 +256,14 @@ class GuardConfig(FrozenPolicy):
         structurally recorded decision, not a hidden mode.
         """
         params: dict[str, Any] = {
-            "min_source_similarity": cls._VISION_MIN_SOURCE_SIMILARITY
+            "min_source_similarity": cls._VISION_MIN_SOURCE_SIMILARITY,
+            # The low floor is only safe WITH the page-wide margin: floor
+            # alone let 64 swapped lines through on 5 111 lines of 1930s
+            # press (and 1 on HIPE); floor + margin let none through on any
+            # measured corpus, at 4.19 % against 4.39 % for the 0.35 floor
+            # on OCR17+ (VR-7, 2026-09-24). The two settings are one
+            # decision, so the profile carries both.
+            "attachment_scope": "page",
         }
         params.update(overrides)
         return cls(**params)

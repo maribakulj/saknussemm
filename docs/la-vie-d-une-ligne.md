@@ -125,6 +125,7 @@ formes que le modèle produit réellement.
 | code | ce qu'il veut dire |
 |---|---|
 | `hyphen_pair_fallback` | la réconciliation a refusé la paire : les deux moitiés reviennent à la source |
+| `pair_drift_fallback` | l'étage A (validation, avant acceptation) a refusé cette paire jusqu'au dernier essai — moitié rendue vide, PART1 qui gonfle, PART2 qui s'effondre, mot recollé — et la paire seule est retombée sur l'OCR pour que le reste du chunk passe. Avant, le chunk entier retombait |
 | `hyphen_partner_fell_back` | le partenaire direct est déjà tombé ; une paire mixte ne peut pas survivre |
 | `hyphen_unit_fallback` | un membre est tombé pour sa propre raison, celui-ci est tiré avec lui |
 | `orphan_hyphen_completed` | la ligne annonce une coupure sans partenaire visible, et la correction l'a complétée |

@@ -105,6 +105,9 @@ FALLBACK_REASON_CODES: frozenset[str] = frozenset(
         "rejected",
         # -- césure : l'unité, jamais un membre seul (ADR-010) -------------
         "hyphen_pair_fallback",
+        # L'étage A a refusé la paire jusqu'au dernier essai : elle retombe
+        # seule, le reste du chunk passe (VR-10).
+        "pair_drift_fallback",
         "hyphen_partner_fell_back",
         "hyphen_unit_fallback",
         "orphan_hyphen_completed",

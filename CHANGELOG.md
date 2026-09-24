@@ -250,6 +250,25 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Changed
 
+- **`GuardConfig.vision()` tient la marge de voisinage contre toute la page**
+  (`attachment_scope="page"`), et garde son plancher à 0,15. Les deux
+  réglages sont une seule décision : le plancher bas seul laissait passer 64
+  lignes échangées sur 5 111 lignes de presse (et 1 sur HIPE) ; avec la
+  marge de page, aucune sur les corpus mesurés, à 4,19 % contre 4,39 % pour
+  le plancher 0,35 sur OCR17+ (`VR-7`). L'empreinte du profil change ;
+  `GuardConfig()` ne bouge pas.
+
+- **Une paire de césure que l'étage A refuse encore au dernier essai retombe
+  seule, et le reste du chunk passe** (`pair_drift_fallback`). Jusque-là la
+  réponse entière était refusée, retentée, redécoupée, puis rendue à l'OCR :
+  sur la presse NewsEye, 64 chunks entiers sur une seule page pour des
+  secondes moitiés en bouillie rendues en un mot lisible, 180 lignes qui
+  n'avaient rien à voir avec la paire. Mesuré : ces lignes, corrigées par
+  un autre bras, sont aussi bonnes que les autres (72 % améliorées, 18 %
+  dégradées — le taux général). Les essais 1 et 2 restent ; seule la fin
+  change, et les 18 autres lignes passent ensuite par tous les gardes de
+  l'étage C comme n'importe quelle ligne (`VR-10`).
+
 - **Une ligne corrigée peut désormais rapporter `review_required` plutôt que
   `corrected`.** C'est la seule rupture que `LineStatus.REVIEW_REQUIRED`
   introduit, et elle est délibérée : un consommateur qui filtre sur

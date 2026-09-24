@@ -31,6 +31,17 @@ class HyphenIntegrityError(ProposalValidationError):
 
     code: ClassVar[str] = "hyphen_integrity_violation"
 
+    #: The pair the violation is about. Lets the attempt loop fall the PAIR
+    #: back on its last attempt instead of refusing the whole reply (VR-10):
+    #: measured on NewsEye, one garbled PART2 read as a single word cost 64
+    #: whole chunks on one page. Empty only for a raise site that does not
+    #: know the pair.
+    line_ids: tuple[str, ...] = ()
+
+    def __init__(self, message: str, *, line_ids: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.line_ids = line_ids
+
 
 def _checked_text(
     line_id: str, corrected_text: object, ocr_texts: dict[str, str] | None
@@ -243,11 +254,13 @@ def _validate_hyphen_integrity(
         # 1. Either side being empty means illegal fusion/deletion
         if not text_a:
             raise HyphenIntegrityError(
-                f"hyphen_integrity_violation: corrected_text for line {id_a!r} is empty"
+                f"hyphen_integrity_violation: corrected_text for line {id_a!r} is empty",
+                line_ids=(id_a, id_b),
             )
         if not text_b:
             raise HyphenIntegrityError(
-                f"hyphen_integrity_violation: corrected_text for line {id_b!r} is empty"
+                f"hyphen_integrity_violation: corrected_text for line {id_b!r} is empty",
+                line_ids=(id_a, id_b),
             )
 
         # 2–3. Semantic drift checks (only when OCR source is available)
@@ -291,7 +304,8 @@ def _validate_hyphen_integrity(
         raise HyphenIntegrityError(
             f"hyphen_integrity_violation: PART1 line {part1_id!r} "
             f"contains full logical word {subs_content!r} "
-            f"(fusion detected)"
+            f"(fusion detected)",
+            line_ids=tuple(i for i in (part1_id, hyphen_pairs.get(part1_id)) if i),
         )
 
 
@@ -314,7 +328,8 @@ def _check_pair_drift(
     if cor_a_wc > ocr_a_wc + config.pair_drift_part1_word_growth:
         raise HyphenIntegrityError(
             f"hyphen_integrity_violation: PART1 line {id_a!r} grew from "
-            f"{ocr_a_wc} to {cor_a_wc} words (text migration suspected)"
+            f"{ocr_a_wc} to {cor_a_wc} words (text migration suspected)",
+            line_ids=(id_a, id_b),
         )
 
     # PART2 shrank below the collapse ratio → absorbed by PART1
@@ -324,7 +339,8 @@ def _check_pair_drift(
     ):
         raise HyphenIntegrityError(
             f"hyphen_integrity_violation: PART2 line {id_b!r} shrank from "
-            f"{ocr_b_wc} to {cor_b_wc} words (text migration suspected)"
+            f"{ocr_b_wc} to {cor_b_wc} words (text migration suspected)",
+            line_ids=(id_a, id_b),
         )
 
 
