@@ -46,7 +46,7 @@ from saknussemm.core.editing import (
     apply_edit_script,
 )
 from saknussemm.core.hyphenation import enrich_chunk_lines
-from saknussemm.core.identity import LineRef
+from saknussemm.core.identity import LineRef, line_ref
 from saknussemm.core.protocols import (
     EditProducer,
     ProducerOptions,
@@ -348,7 +348,8 @@ def _without_pairs(
     exc: HyphenIntegrityError,
     script: EditScript,
     propose: Callable[[EditScript], ProposalBatch],
-    source_by_id: dict[str, str],
+    lines_by_id: dict[str, LineManifest],
+    traces: dict[LineRef, LineTrace] | None,
 ) -> tuple[ProposalBatch, frozenset[str]]:
     """The reply with the refused hyphen pair(s) put back to OCR, validated.
 
@@ -359,32 +360,45 @@ def _without_pairs(
     — 180 lines that had nothing to do with the pair, and were, corrected
     by another producer, exactly as good as any other line (72 % better,
     18 % worse: the corpus-wide rate). So on the LAST attempt the pair's
-    ops are dropped, the reply is re-validated with no further call
-    (``propose`` is the loop's own normalise-and-validate step) with the
-    pair's own ops replaced by identities — full coverage still holds — and
-    the pair is reported ``pair_drift_fallback`` while the other lines go
-    through Stage B and C like any accepted reply. A second pair refused
-    in the same reply is dropped the same way; any other error propagates.
+    ops become identities (full coverage still holds), the reply is
+    re-validated with no further call (``propose`` is the loop's own
+    normalise-and-validate step), and the pair is reported
+    ``pair_drift_fallback`` while the other lines go through Stage B and
+    C like any accepted reply. A second pair refused in the same reply is
+    handled the same way; any other error propagates.
+
+    The proposal trace of the pair is what the producer actually said,
+    not the identity this function substituted: the report's proposal
+    stage is the audit trail of the model's words, and re-validating must
+    not rewrite it (``tests/test_status_truthfulness.py``).
     """
     dropped: set[str] = set()
+    said: dict[str, str | None] = {}
     while True:
+        for lid in exc.line_ids:
+            lm = lines_by_id.get(lid)
+            trace = traces.get(line_ref(lm)) if traces is not None and lm else None
+            said.setdefault(lid, trace.model_corrected_text if trace else None)
         dropped.update(exc.line_ids)
-        # The pair stays IN the reply, as itself: a producer that promised
-        # full coverage must still cover it, so its ops become identities.
         kept = EditScript(
             ops=[op for op in script.ops if op.line_id not in dropped]
             + [
-                ReplaceLine(line_id=lid, text=source_by_id[lid])
+                ReplaceLine(line_id=lid, text=lines_by_id[lid].ocr_text)
                 for lid in sorted(dropped)
-                if lid in source_by_id
+                if lid in lines_by_id
             ]
         )
         try:
-            return propose(kept), frozenset(dropped)
+            response = propose(kept)
         except HyphenIntegrityError as again:
             if not again.line_ids or set(again.line_ids) <= dropped:
                 raise
             exc = again
+            continue
+        for lid, text in said.items():
+            if text is not None and lid in lines_by_id:
+                _set_trace(traces, lines_by_id[lid], model_corrected_text=text)
+        return response, frozenset(dropped)
 
 
 def _propose(
@@ -422,26 +436,21 @@ def _propose(
 def _pair_fallback(
     exc: Exception,
     *,
-    attempt: int,
-    max_attempts: int,
+    last: bool,
     script: EditScript | None,
     propose: Callable[[EditScript], ProposalBatch],
     chunk: ChunkRequest,
     chunk_lines: list[LineManifest],
+    traces: dict[LineRef, LineTrace] | None,
     emit: Callable[[ev.EngineEvent], None],
 ) -> tuple[ProposalBatch, frozenset[str]] | None:
     """VR-10 — on the LAST attempt, a hyphen pair the validator still refuses
     falls alone and the rest of the reply stands. ``None`` in every other
     case, and the ordinary failure path takes over."""
-    if not (
-        isinstance(exc, HyphenIntegrityError)
-        and exc.line_ids
-        and attempt == max_attempts
-        and script is not None
-    ):
+    if not (isinstance(exc, HyphenIntegrityError) and exc.line_ids and last and script):
         return None
-    source_by_id = {lm.line_id: lm.ocr_text for lm in chunk_lines}
-    response, dropped = _without_pairs(exc, script, propose, source_by_id)
+    lines_by_id = {lm.line_id: lm for lm in chunk_lines}
+    response, dropped = _without_pairs(exc, script, propose, lines_by_id, traces)
     emit(
         ev.Warning(
             chunk_id=chunk.chunk_id,
@@ -660,12 +669,12 @@ async def _attempt_chunk(
         except Exception as exc:
             settled = _pair_fallback(
                 exc,
-                attempt=attempt,
-                max_attempts=max_attempts,
+                last=attempt == max_attempts,
                 script=script,
                 propose=propose,
                 chunk=chunk,
                 chunk_lines=chunk_lines,
+                traces=traces,
                 emit=emit,
             )
             if settled is not None:
