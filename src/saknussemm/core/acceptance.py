@@ -149,23 +149,33 @@ def _apply_line_acceptance(
     all_lines_by_id: dict[str, LineManifest],
     traces: dict[LineRef, LineTrace] | None,
     cross_page_partners: dict[LineRef, LineManifest] | None = None,
+    reconciled: frozenset[LineRef] = frozenset(),
 ) -> None:
     """Apply the per-line acceptance policy on lines not already
-    reconciled as hyphen pairs.
+    reconciled as hyphen pairs — and the attachment guards on those.
 
-    Two guards in order:
-      1. Orphan PART1/BOTH whose OCR ends in '-' but corrected does
-         not → the LLM completed a hyphen we couldn't reconcile;
-         fall back to OCR to keep the marker.
-      2. Centralised :func:`check_line` with prev/next context — the
-         single source of truth for "is this correction acceptable?".
-         Under ``attachment_scope="page"`` every other line of the page
-         is a candidate too; ``all_lines_by_id`` IS the page (it is the
-         workspace's index), so the list is built once per chunk here.
+    ``reconciled`` names the members stage B accepted in THIS chunk;
+    they alone are revisited (:func:`_attachment_of_reconciled`). Any
+    other line that already holds a decision is skipped, as before.
+    Two guards in order on the rest: an orphan PART1/BOTH whose OCR
+    ends in '-' but whose correction does not falls back to keep the
+    marker; then :func:`check_line` with prev/next context — and under
+    ``attachment_scope="page"`` every other line of the page, which
+    ``all_lines_by_id`` IS (the workspace's index).
     """
     page_scope = guard_config.attachment_scope == "page"
+    reverts: dict[LineRef, str] = {}
     for lm in chunk_lines:
         if lm.corrected_text is not None:
+            if line_ref(lm) in reconciled:
+                reason = _attachment_of_reconciled(
+                    lm,
+                    guard_config=guard_config,
+                    all_lines_by_id=all_lines_by_id,
+                    traces=traces,
+                )
+                if reason is not None:
+                    reverts[line_ref(lm)] = reason
             continue
         corrected = text_by_id.get(lm.line_id)
         if corrected is None:
@@ -183,28 +193,7 @@ def _apply_line_acceptance(
             decide.fall_back(lm, reason="orphan_hyphen_completed", traces=traces)
             continue
 
-        # ADR-010 (unit fallback atomicity): a hyphen member whose
-        # partner already fell back (its chunk was rejected — the
-        # cross-page case: this side reaches acceptance because the
-        # partner sits in no reconcile pass of THIS chunk) keeps its
-        # source text too.
-        # Both slots, DIRECT partners only — deliberately not the
-        # transitive unit. Widening this to the whole chain is
-        # defensible under unit atomicity but changes behaviour on
-        # 3+-member chains, so it belongs behind a measurement, not
-        # inside a refactor.
-        fallen_partner = any(
-            partner is not None and partner.status is LineStatus.FALLBACK
-            for partner in (
-                _lookup_ref(
-                    ref,
-                    page_id=lm.page_id,
-                    line_by_id=all_lines_by_id,
-                    cross_page_partners=cross_page_partners,
-                )
-                for ref in (pair_ref(lm), forward_ref(lm))
-            )
-        )
+        fallen_partner = _partner_fell(lm, all_lines_by_id, cross_page_partners)
         if fallen_partner:
             decide.fall_back(lm, reason="hyphen_partner_fell_back", traces=traces)
             continue
@@ -232,6 +221,98 @@ def _apply_line_acceptance(
         # The guard's once-computed metrics ride the trace to
         # the report's decision stage, accepted or not.
         _set_trace(traces, lm, proposal_features=result.features)
+    _revert_units(reverts, all_lines_by_id, cross_page_partners, traces)
+
+
+def _partner_fell(
+    lm: LineManifest,
+    all_lines_by_id: dict[str, LineManifest],
+    cross_page_partners: dict[LineRef, LineManifest] | None,
+) -> bool:
+    """ADR-010 (unit fallback atomicity): a hyphen member whose partner
+    already fell back (its chunk was rejected — the cross-page case: this
+    side reaches acceptance because the partner sits in no reconcile pass
+    of THIS chunk) keeps its source text too.
+
+    Both slots, DIRECT partners only — deliberately not the transitive
+    unit. Widening this to the whole chain is defensible under unit
+    atomicity but changes behaviour on 3+-member chains, so it belongs
+    behind a measurement, not inside a refactor.
+    """
+    return any(
+        partner is not None and partner.status is LineStatus.FALLBACK
+        for partner in (
+            _lookup_ref(
+                ref,
+                page_id=lm.page_id,
+                line_by_id=all_lines_by_id,
+                cross_page_partners=cross_page_partners,
+            )
+            for ref in (pair_ref(lm), forward_ref(lm))
+        )
+    )
+
+
+def _revert_units(
+    reverts: dict[LineRef, str],
+    all_lines_by_id: dict[str, LineManifest],
+    cross_page_partners: dict[LineRef, LineManifest] | None,
+    traces: dict[LineRef, LineTrace] | None,
+) -> None:
+    """A refused member pulls its whole unit (ADR-010): the page index
+    plus the cross-page partners IS every line a unit can span."""
+    if not reverts:
+        return
+    all_lines = {line_ref(o): o for o in all_lines_by_id.values()}
+    all_lines.update(cross_page_partners or {})
+    _apply_unit_reverts(
+        reverts=reverts,
+        all_lines=all_lines,
+        traces=traces,
+        atomicity_reason="hyphen_unit_fallback",
+    )
+
+
+def _attachment_of_reconciled(
+    lm: LineManifest,
+    *,
+    guard_config: GuardConfig,
+    all_lines_by_id: dict[str, LineManifest],
+    traces: dict[LineRef, LineTrace] | None,
+) -> str | None:
+    """Stage C's floor and margin on a hyphen member stage B has accepted.
+
+    The reconciler judges the two halves of a cut word against each
+    other — whether text migrated across the break — and nothing else.
+    It cannot see that a half carries the text of a line elsewhere on
+    the page, and until VR-11 nothing else looked either: a reconciled
+    member skipped ``check_line`` entirely, so a PART1 reading
+    ``ce que notre grand mor-`` under a source that said ``au. nt comme
+    orateur, 'une situation in-`` was delivered as corrected while the
+    page held an OCR line ``ce que notre grand mo`` (NewsEye 0253902,
+    replayed: ``check_line`` refuses it at 0.95 against 0.31).
+
+    Returns the refusal reason, or ``None`` when the member stands. The
+    absorption guard stays off: stage B owns the pair's word split. A
+    member the reconciler left at its source text is not judged — it
+    would pass as identity anyway.
+    """
+    if lm.corrected_text == lm.ocr_text:
+        return None
+    prev_ocr, next_ocr, other_ocr = _margin_candidates(
+        lm, all_lines_by_id, page_scope=guard_config.attachment_scope == "page"
+    )
+    result = check_line(
+        lm.ocr_text,
+        lm.corrected_text or "",
+        prev_ocr,
+        next_ocr,
+        other_ocr=other_ocr,
+        config=guard_config,
+        absorption=False,
+    )
+    _set_trace(traces, lm, proposal_features=result.features)
+    return None if result.accepted else (result.reason or "rejected")
 
 
 def _global_adjacency_pass(

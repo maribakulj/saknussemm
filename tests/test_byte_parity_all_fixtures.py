@@ -251,10 +251,14 @@ _GOLDEN: dict[tuple[str, str], str] = {
         "X0000002.xml",
         "probe",
     ): "25f46fec9b8b053aab46f8e0218cd61029a53324389f3ec1086fb828f71d3fe7",
+    # Ré-épinglée (VR-11) : trois TextLines d'une unité de césure
+    # (TL000188–190) que la bouillie « zzzz » traversait — l'étage B ne juge
+    # que la migration entre les moitiés, et un membre réconcilié sautait
+    # l'étage C. Le plancher les rend à la source ; rien d'autre ne bouge.
     (
         "X0000002.xml",
         "drift",
-    ): "ecfbae97aec3837bc7b1bd26ea75daee5d4947dfa47276ac0e06cb793d6ae7e6",
+    ): "36883f14e917ab2996ccf64cadf64714ad9e317078dde03c934b1dfb8fc88e48",
     (
         "bnf-alto-prod-bpt6k5406037v-f40.xml",
         "identity",
@@ -411,10 +415,13 @@ _GOLDEN: dict[tuple[str, str], str] = {
         "0253902003.xml",
         "probe",
     ): "53dffbe06202c5d151a80586b78ca732710444e1339c99a1087248a6dd27706f",
+    # Ré-épinglée (VR-11) : la paire tl_909/tl_910, même mécanisme que
+    # X0000002 ci-dessus — bouillie sur un membre réconcilié, rendue à la
+    # source par le plancher ; les 912 autres TextLines sont identiques.
     (
         "0253902003.xml",
         "drift",
-    ): "d13f0000638749eb3570c9bdaeb4f06c073e75bdda9257f5644897c8c2ad6695",
+    ): "80fe4009ffbc2959c581dfeee67dec731741ec4a1c17673ae297eabb6f432060",
     (
         "bpt6k2206225_p0015.alto.xml",
         "identity",

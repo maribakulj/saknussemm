@@ -269,6 +269,21 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   change, et les 18 autres lignes passent ensuite par tous les gardes de
   l'étage C comme n'importe quelle ligne (`VR-10`).
 
+- **Un membre de paire de césure que l'étage B a accepté passe désormais le
+  plancher et la marge de l'étage C** (`VR-11`). La réconciliation juge les
+  deux moitiés d'un mot coupé l'une contre l'autre — le texte a-t-il migré
+  d'une ligne à l'autre — et rien d'autre ; un membre réconcilié sautait
+  ensuite `check_line` entièrement. Vu au run de vérification de `VR-10`
+  sur NewsEye : une PART1 rendue « ce que notre grand mor- » sous une source
+  « au. nt comme orateur, 'une situation in- », livrée `corrected` alors que
+  la page tenait une ligne OCR « ce que notre grand mo » — rejouée hors
+  run, `check_line` la refuse à 0,95 contre 0,31. Le garde d'absorption
+  reste hors jeu sur ces membres (l'étage B possède la coupe du mot) ; un
+  membre refusé entraîne son unité (`hyphen_unit_fallback`, ADR-010). Deux
+  empreintes d'octets bougent (`X0000002`, `0253902003`, scénario
+  `drift`) : une unité de césure dont la bouillie traversait, rendue à la
+  source. `check_line` gagne `absorption: bool = True`.
+
 - **Une ligne corrigée peut désormais rapporter `review_required` plutôt que
   `corrected`.** C'est la seule rupture que `LineStatus.REVIEW_REQUIRED`
   introduit, et elle est délibérée : un consommateur qui filtre sur

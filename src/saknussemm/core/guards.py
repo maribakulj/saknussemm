@@ -191,6 +191,45 @@ def _closer_to_another_line(
     return None
 
 
+def _absorbs_a_neighbour(
+    source_ocr: str,
+    corrected: str,
+    *,
+    prev_ocr: str | None,
+    next_ocr: str | None,
+    features: ProposalFeatures,
+    config: GuardConfig,
+) -> AcceptanceResult | None:
+    """Guard 3 — the correction is the source and a neighbour concatenated.
+
+    ``None`` when nothing fires.
+    """
+    src_len = max(len(source_ocr), 1)
+    if len(corrected) <= src_len * config.absorption_length_ratio:
+        return None
+    if next_ocr and (
+        _similarity(corrected, f"{source_ocr} {next_ocr}")
+        > config.absorption_concat_similarity
+    ):
+        return AcceptanceResult(
+            accepted=False,
+            text=source_ocr,
+            reason="absorbs_next_line",
+            features=features,
+        )
+    if prev_ocr and (
+        _similarity(corrected, f"{prev_ocr} {source_ocr}")
+        > config.absorption_concat_similarity
+    ):
+        return AcceptanceResult(
+            accepted=False,
+            text=source_ocr,
+            reason="absorbs_previous_line",
+            features=features,
+        )
+    return None
+
+
 def check_line(
     source_ocr: str,
     corrected: str,
@@ -199,6 +238,7 @@ def check_line(
     *,
     other_ocr: Sequence[str] = (),
     config: GuardConfig = DEFAULT_GUARD_CONFIG,
+    absorption: bool = True,
 ) -> AcceptanceResult:
     """Decide whether *corrected* is safe to accept for *source_ocr*.
 
@@ -218,6 +258,14 @@ def check_line(
         ``GuardConfig.attachment_scope="page"``. Empty (the default) keeps
         the historical two-neighbour check. The caller decides the scope;
         this function only knows the texts.
+    absorption : bool
+        Run guard 3 (the correction is source + neighbour concatenated).
+        ``False`` for a reconciled hyphen member: stage B already ruled on
+        the pair's word split, and a fragment that legitimately completes
+        its partner's word would look like an absorption here. Guards 1
+        and 2 — the floor and the neighbour margin — always run: a pair
+        member can carry ANOTHER line's text as easily as a lone line
+        (VR-11), and stage B cannot see that.
 
     Returns
     -------
@@ -264,27 +312,17 @@ def check_line(
         return migrated
 
     # --- Guard 3: absorption of adjacent line ---
-    # Detects when the correction is source + neighbour concatenated.
-    if next_ocr and len(corrected) > src_len * config.absorption_length_ratio:
-        concat_fwd = source_ocr + " " + next_ocr
-        if _similarity(corrected, concat_fwd) > config.absorption_concat_similarity:
-            return AcceptanceResult(
-                accepted=False,
-                text=source_ocr,
-                reason="absorbs_next_line",
-                features=features,
-            )
-
-    if prev_ocr and len(corrected) > src_len * config.absorption_length_ratio:
-        concat_bwd = prev_ocr + " " + source_ocr
-        if _similarity(corrected, concat_bwd) > config.absorption_concat_similarity:
-            return AcceptanceResult(
-                accepted=False,
-                text=source_ocr,
-                reason="absorbs_previous_line",
-                features=features,
-            )
-
+    if absorption:
+        absorbed = _absorbs_a_neighbour(
+            source_ocr,
+            corrected,
+            prev_ocr=prev_ocr,
+            next_ocr=next_ocr,
+            features=features,
+            config=config,
+        )
+        if absorbed is not None:
+            return absorbed
     return AcceptanceResult(accepted=True, text=corrected, features=features)
 
 

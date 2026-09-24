@@ -84,7 +84,7 @@ Ils sont **délibérément trois**, à trois moments, et ils se règlent ensembl
 |---|---|---|---|---|
 | **A** | avant tout retry | `validator._check_pair_drift` | la dérive d'une paire de césure dans la réponse brute | lève → **nouvel essai** |
 | **B** | après la réponse validée | `hyphenation.reconcile_hyphen_pair` | la cohérence des deux moitiés d'un mot coupé | **repli des deux membres** |
-| **C** | après la réconciliation | `guards.check_line` | la ligne seule et ses voisines | **repli de la ligne** |
+| **C** | après la réconciliation | `guards.check_line` | la ligne seule et ses voisines — y compris, depuis `VR-11`, un membre de paire que B vient d'accepter (plancher et marge seulement : la coupe du mot reste à B) | **repli de la ligne** — de l'unité entière pour un membre de paire |
 
 Les jumeaux entre A et B (`pair_drift_part1_word_growth` = 2 contre
 `part1_max_word_growth` = 1) ne sont pas une duplication : A est plus permissif
@@ -127,7 +127,7 @@ formes que le modèle produit réellement.
 | `hyphen_pair_fallback` | la réconciliation a refusé la paire : les deux moitiés reviennent à la source |
 | `pair_drift_fallback` | l'étage A (validation, avant acceptation) a refusé cette paire jusqu'au dernier essai — moitié rendue vide, PART1 qui gonfle, PART2 qui s'effondre, mot recollé — et la paire seule est retombée sur l'OCR pour que le reste du chunk passe. Avant, le chunk entier retombait |
 | `hyphen_partner_fell_back` | le partenaire direct est déjà tombé ; une paire mixte ne peut pas survivre |
-| `hyphen_unit_fallback` | un membre est tombé pour sa propre raison, celui-ci est tiré avec lui |
+| `hyphen_unit_fallback` | un membre est tombé pour sa propre raison (depuis `VR-11`, aussi un refus de l'étage C sur un membre réconcilié : `too_different_from_source`, `closer_to_*`), celui-ci est tiré avec lui |
 | `orphan_hyphen_completed` | la ligne annonce une coupure sans partenaire visible, et la correction l'a complétée |
 
 `hyphen_unit_fallback` est une **conséquence**, pas une décision : c'est ce qui
