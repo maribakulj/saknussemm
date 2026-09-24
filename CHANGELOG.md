@@ -56,6 +56,104 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- Les producteurs vision à alias (`CompositeVisionEditProducer`,
+  `PageVisionEditProducer`) rendent une ligne vide à son texte source au
+  lieu de la laisser au validateur. Leur prompt dit « rends son identifiant
+  seul » pour une ligne illisible ; le modèle obéit, le validateur refuse le
+  texte vide, et le chunk entier part en retries puis en descente puis en
+  repli. Mesuré sur NewsEye : 29 retries sur 67, et 342 lignes rendues à
+  l'OCR par chunks entiers (`VR-9`).
+
+- `open_page(asset)` et `crop_region(..., source_image=…)` : la page est
+  décodée **une fois par chunk** et le recadrage est converti, pas la page.
+  Jusque-là chaque recadrage transposait et convertissait la page entière —
+  deux copies par ligne, vingt lignes par chunk ; sur une page de presse de
+  6 867 × 9 329 px, macOS a tué le run. Les octets de chaque recadrage sont
+  identiques, donc les empreintes enregistrées tiennent (`VR-8`).
+
+- **`with_corpus_notes(prompt, *notes)` et `CORPUS_NOTE_EARLY_MODERN_FRENCH`.**
+  Le prompt générique ne sait pas quel siècle il corrige : à travers le
+  pipeline sur OCR17+, `page_aligned` réécrivait `meritay-je` en
+  `mériterais-je` et `vn` en `un` malgré la règle « ne modernise pas » —
+  10,96 %, pire que ne rien faire (8,55 %). Une phrase de plus nommant
+  l'époque et le ſ long : 6,71 %. La note s'ajoute comme règle numérotée à
+  la suite du prompt de n'importe quel producteur et entre dans son
+  empreinte de configuration (`VR-4`).
+
+- `ChunkPlannerConfig(coalesce_blocks=True)` : à la granularité BLOCK, les
+  groupes de régions consécutifs sont fusionnés en un chunk tant que les
+  deux budgets tiennent. Défaut `False` (un chunk par groupe, comme avant).
+  Mesuré à travers le pipeline sur OCR17+ : des fichiers PAGE à régions
+  d'une ou deux lignes donnaient 105 chunks pour 251 lignes — 32 sur une
+  seule page — et un producteur vision qui lit du contexte recevait des
+  bandes de 2 ou 3 rangées (`VR-2`).
+
+- `VisionEditProducer` lit le plafond d'images que son client déclare
+  (`max_images_per_call` ou `MAX_IMAGES_PER_CALL`) quand l'hôte ne passe pas
+  de `capabilities`. Mesuré à travers le pipeline : sans plafond déclaré, 19
+  recadrages partaient, le fournisseur refusait le neuvième, et le moteur
+  retentait puis redescendait au lieu de découper (`VR-3`).
+
+- **`PageVisionEditProducer` : la page entière en une image, l'identité dans
+  le texte.** C'est le levier de qualité mesuré (`hans`, H10/H12) et qui
+  n'avait aucun chemin dans la bibliothèque : sur OCR17+, un recadrage par
+  ligne lit à 6,4–6,7 %, une bande étiquetée à 6,25 %, la page en une image
+  à 3,7–4,6 % — le modèle se sert de la typographie et de la langue autour
+  d'une ligne pour la lire. Pas de géométrie (rien n'est recadré), une image
+  JPEG bornée à `max_side` (1 024 px mesuré meilleur que 2 048), des alias
+  opaques comme le composite, et le même chemin partagé après la réponse.
+  À coupler avec `GuardConfig(attachment_scope="page")` (`VR-1`).
+
+- **La marge de voisinage peut porter sur toute la page.**
+  `GuardConfig(attachment_scope="page")` tient le garde 2 de `check_line`
+  — « la correction ressemble plus à une autre ligne qu'à la sienne » —
+  contre chaque ligne de la page et non plus contre les deux voisines, avec
+  le code de refus `closer_to_another_line`. Le défaut reste `"adjacent"`.
+
+  Pourquoi. Une ligne mal rattachée porte le texte d'une AUTRE ligne, et
+  cette autre ligne n'est pas toujours voisine : un modèle qui supprime ou
+  coupe une ligne décale toutes les suivantes, et un modèle à qui l'on
+  montre une colonne la lit en travers. Mesuré sur 5 111 lignes de presse
+  des années 1930 à vérité terrain humaine : les décalages se concentrent à
+  ±1 mais vont jusqu'à ±15 ; la portée voisine en laissait passer 1 746, la
+  portée page zéro. Sur 12 000 lignes de quatre corpus, avec les deux
+  nombres inchangés (plancher 0,35, marge 0,15) : zéro ligne mal rattachée.
+  Le prix monte avec le bruit de la source — 5 % de refus sur un OCR propre,
+  la moitié des corrections à 60 % d'erreur simulée.
+
+  `attachment_twin_similarity` (défaut `None`) exempte de la marge les
+  lignes jumelles — deux didascalies nommant le même personnage — entre
+  lesquelles un échange est sans dommage et la marge impossible à tenir. À
+  0,85 sur OCR17+, il rend la moitié des refus (CER 4,58 → 4,31 %) sans
+  laisser passer une ligne ; dessiné après avoir vu les échecs, il reste une
+  option.
+
+- **`CompositeVisionEditProducer` : une seule image par bloc, l'identité
+  peinte dedans.** Chaque ligne est recadrée séparément, les recadrages
+  sont empilés en une bande (`compose_line_strip`), chaque rangée précédée
+  de son alias opaque peint en rouge (`line_aliases`), et le JSON porte les
+  mêmes alias. `max_lines` (20) est déclaré comme `max_images` : le batcher
+  existant borne ainsi le nombre de rangées sans code nouveau.
+
+  Pourquoi. Le modèle apparie par l'image, pas par le texte : avec les
+  identifiants dans le texte seulement, sur la même presse des années 1930,
+  il transcrit le recadrage de haut en bas et remplit les identifiants dans
+  l'ordre — 1 746 lignes sous le mauvais identifiant. Peints à côté de
+  l'encre, en bandes de 20 : 84, et un CER de 39 % à 6,4 % sans garde. Les
+  entiers ne conviennent pas comme alias : après une suppression, le modèle
+  renumérote ; un jeton opaque, il le recopie.
+
+- `PageLLMEditProducer` aplatit tout séparateur de ligne dans une ligne
+  rendue avant de l'apparier. Mesuré sur OCR17+ à travers le pipeline : un
+  U+2028 dans une ligne rendue faisait, sous `"characters"`, refuser la
+  page entière par le validateur, retenter quatre fois, redescendre d'un
+  cran et finir en `all_attempts_exhausted` sur ses 19 lignes.
+
+- `PageLLMEditProducer(line_matching="characters")` documente qu'il ne
+  vérifie pas l'hypothèse d'ordre dont il dépend et ne doit jamais tourner
+  sans `attachment_scope="page"` : sur un flux qui n'est plus la page, il
+  découpe quand même — 46 % de CER mesuré.
+
 - **Le mode `page_aligned` peut retrouver l'identité de ligne au CARACTÈRE,
   pas seulement par jetons.** `core.page_alignment.reproject_page_lines`
   recoupe le flux rendu sur les frontières des lignes source, et
@@ -151,6 +249,48 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   vingt raisons de repli, jusqu'ici dispersé en littéraux sur huit modules.
 
 ### Changed
+
+- **`GuardConfig.vision()` tient la marge de voisinage contre toute la page**
+  (`attachment_scope="page"`), et garde son plancher à 0,15. Les deux
+  réglages sont une seule décision : le plancher bas seul laissait passer 64
+  lignes échangées sur 5 111 lignes de presse (et 1 sur HIPE) ; avec la
+  marge de page, aucune sur les corpus mesurés, à 4,19 % contre 4,39 % pour
+  le plancher 0,35 sur OCR17+ (`VR-7`). L'empreinte du profil change ;
+  `GuardConfig()` ne bouge pas.
+
+- **Une paire de césure que l'étage A refuse encore au dernier essai retombe
+  seule, et le reste du chunk passe** (`pair_drift_fallback`). Jusque-là la
+  réponse entière était refusée, retentée, redécoupée, puis rendue à l'OCR :
+  sur la presse NewsEye, 64 chunks entiers sur une seule page pour des
+  secondes moitiés en bouillie rendues en un mot lisible, 180 lignes qui
+  n'avaient rien à voir avec la paire. Mesuré : ces lignes, corrigées par
+  un autre bras, sont aussi bonnes que les autres (72 % améliorées, 18 %
+  dégradées — le taux général). Les essais 1 et 2 restent ; seule la fin
+  change, et les 18 autres lignes passent ensuite par tous les gardes de
+  l'étage C comme n'importe quelle ligne (`VR-10`).
+
+- **Un membre de paire de césure que l'étage B a accepté passe désormais le
+  plancher et la marge de l'étage C** (`VR-11`). La réconciliation juge les
+  deux moitiés d'un mot coupé l'une contre l'autre — le texte a-t-il migré
+  d'une ligne à l'autre — et rien d'autre ; un membre réconcilié sautait
+  ensuite `check_line` entièrement. Vu au run de vérification de `VR-10`
+  sur NewsEye : une PART1 rendue « ce que notre grand mor- » sous une source
+  « au. nt comme orateur, 'une situation in- », livrée `corrected` alors que
+  la page tenait une ligne OCR « ce que notre grand mo » — rejouée hors
+  run, `check_line` la refuse à 0,95 contre 0,31. Le garde d'absorption
+  reste hors jeu sur ces membres (l'étage B possède la coupe du mot) ; un
+  membre refusé entraîne son unité (`hyphen_unit_fallback`, ADR-010). Deux
+  empreintes d'octets bougent (`X0000002`, `0253902003`, scénario
+  `drift`) : une unité de césure dont la bouillie traversait, rendue à la
+  source. `check_line` gagne `absorption: bool = True`.
+
+- **Le texte d'une opération d'édition est tenu en NFC** (`ReplaceLine.text`,
+  `ReplaceSpan.text`). Les parseurs lisent la source en NFC et les
+  réécrivains écrivent en NFC, mais un modèle répond dans la forme qu'il
+  veut : un « aisé » décomposé (e + U+0301) décidé tel quel était écrit
+  précomposé, la vérification après réécriture voyait deux chaînes
+  différentes et déclarait la page **non livrable** — vu trois fois sur
+  OCR17+ (Descartes, Corneille), par intermittence (`VR-14`).
 
 - **Une ligne corrigée peut désormais rapporter `review_required` plutôt que
   `corrected`.** C'est la seule rupture que `LineStatus.REVIEW_REQUIRED`

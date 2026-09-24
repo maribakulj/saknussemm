@@ -90,8 +90,16 @@ class PageLLMEditProducer:
         #: source boundaries and never refuses. The second corrects better
         #: (3.7% against 6.4% distance to ground truth — the measurement is
         #: in :func:`~saknussemm.core.page_alignment.reproject_page_lines`)
-        #: but assumes an in-order stream; what catches it otherwise is the
-        #: ``min_source_similarity`` guard, downstream.
+        #: but assumes an in-order stream — and NOTHING in it verifies that
+        #: assumption. It places every returned character somewhere, so a
+        #: stream that is not the page's lines (a model that transcribed a
+        #: column crop instead of correcting the list) is cut onto the
+        #: source boundaries anyway: measured at 46 % character error and
+        #: 201 lines carrying another line's text on 5 111 lines of 1930s
+        #: press, against 11 % untouched. Never run it without the
+        #: page-scope neighbour margin, ``GuardConfig(attachment_scope=
+        #: "page")``, which took those 201 to one — and that one was a
+        #: garbled ground truth, not a mis-attachment.
         #:
         #: The default stays ``"jaccard"``: the measurement covers nine
         #: pages, and changing shipped behaviour is a maintainer's call, not
@@ -139,6 +147,8 @@ class PageLLMEditProducer:
             temperature=options.temperature,
         )
         returned = page_lines_from_response(raw)
+        if returned is not None:
+            returned = [_one_line(text) for text in returned]
         if returned is None:
             raise ProposalValidationError(
                 "page response is not {'lines': [str, …]} — with position as "
@@ -169,6 +179,23 @@ class PageLLMEditProducer:
             if target is not None and returned[target] != line.ocr_text
         ]
         return EditScript(ops=ops), usage
+
+
+def _one_line(text: str) -> str:
+    """A returned line with any line separator flattened to a space.
+
+    The validator refuses a ``corrected_text`` holding any ``str.splitlines``
+    boundary, and rightly: a newline inside one line is the model splitting
+    it. Under Jaccard such a line is simply never matched (its tokens still
+    are, so it usually is — and then refused). Under ``"characters"`` it is
+    worse: the stream is re-cut on the source boundaries and the separator
+    lands inside a piece, so the whole page is refused, retried, downgraded
+    and finally FALLS BACK — measured on OCR17+ (Balzac, 19 lines): four
+    retries, one downgrade, ``all_attempts_exhausted`` on every line, for
+    one U+2028 in one returned string. Flattening it costs nothing the
+    guards would not have caught.
+    """
+    return " ".join(text.splitlines())
 
 
 __all__ = ["PageLLMEditProducer"]
