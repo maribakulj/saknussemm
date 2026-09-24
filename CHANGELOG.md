@@ -56,6 +56,14 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- Les producteurs vision à alias (`CompositeVisionEditProducer`,
+  `PageVisionEditProducer`) rendent une ligne vide à son texte source au
+  lieu de la laisser au validateur. Leur prompt dit « rends son identifiant
+  seul » pour une ligne illisible ; le modèle obéit, le validateur refuse le
+  texte vide, et le chunk entier part en retries puis en descente puis en
+  repli. Mesuré sur NewsEye : 29 retries sur 67, et 342 lignes rendues à
+  l'OCR par chunks entiers (`VR-9`).
+
 - `open_page(asset)` et `crop_region(..., source_image=…)` : la page est
   décodée **une fois par chunk** et le recadrage est converti, pas la page.
   Jusque-là chaque recadrage transposait et convertissait la page entière —

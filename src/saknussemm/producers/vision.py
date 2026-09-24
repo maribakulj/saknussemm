@@ -906,14 +906,21 @@ class CompositeVisionEditProducer:
             json_schema=self._output_schema,
             temperature=options.temperature,
         )
+        source_by_id = {ln.line_id: ln.ocr_text for ln in payload.lines}
         ops = edit_ops_from_response(
-            _unalias_response(raw, {alias: lid for lid, alias in aliases.items()}),
-            source_by_id={ln.line_id: ln.ocr_text for ln in payload.lines},
+            _unalias_response(
+                raw, {alias: lid for lid, alias in aliases.items()}, source_by_id
+            ),
+            source_by_id=source_by_id,
         )
         return EditScript(ops=ops), usage
 
 
-def _unalias_response(raw: object, id_by_alias: Mapping[str, str]) -> object:
+def _unalias_response(
+    raw: object,
+    id_by_alias: Mapping[str, str],
+    source_by_id: Mapping[str, str] | None = None,
+) -> object:
     """The reply with painted aliases mapped back to real line ids.
 
     An entry under an alias this chunk never painted is dropped rather than
@@ -921,6 +928,16 @@ def _unalias_response(raw: object, id_by_alias: Mapping[str, str]) -> object:
     machinery takes over, which is the documented path for a malformed
     reply. The alias is matched case-insensitively, because a model reading
     a painted label back sometimes lowercases it and nothing else changes.
+
+    An EMPTY ``corrected_text`` becomes the line's source text when
+    ``source_by_id`` is given. The vision prompts say "rends son identifiant
+    seul" for an unreadable line, so an empty reply is the model obeying,
+    not failing — and the validator refuses an empty text for a non-empty
+    source (rightly, for a text producer that promised a correction).
+    Measured through the pipeline on NewsEye (8 pages of 1930s press): 29
+    of 67 retries were this, each retry burning attempts until the chunk
+    downgraded and finally fell back WHOLE — 342 lines returned to OCR for
+    the sake of a few the model had declared unreadable (VR-9).
     """
     if not isinstance(raw, dict):
         return raw
@@ -936,6 +953,9 @@ def _unalias_response(raw: object, id_by_alias: Mapping[str, str]) -> object:
         line_id = folded.get(alias.strip().upper()) if isinstance(alias, str) else None
         if line_id is None:
             continue
+        text = entry.get("corrected_text")
+        if source_by_id is not None and isinstance(text, str) and not text.strip():
+            entry = {**entry, "corrected_text": source_by_id.get(line_id, text)}
         kept.append({**entry, "line_id": line_id})
     return {**raw, "lines": kept}
 
@@ -1104,8 +1124,11 @@ class PageVisionEditProducer:
             json_schema=self._output_schema,
             temperature=options.temperature,
         )
+        source_by_id = {ln.line_id: ln.ocr_text for ln in payload.lines}
         ops = edit_ops_from_response(
-            _unalias_response(raw, {alias: lid for lid, alias in aliases.items()}),
-            source_by_id={ln.line_id: ln.ocr_text for ln in payload.lines},
+            _unalias_response(
+                raw, {alias: lid for lid, alias in aliases.items()}, source_by_id
+            ),
+            source_by_id=source_by_id,
         )
         return EditScript(ops=ops), usage

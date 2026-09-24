@@ -177,3 +177,28 @@ def test_row_count_is_bounded_through_the_image_cap() -> None:
     }
     split = _split_for_image_cap(routed=[(chunk, producer)], line_by_id=line_by_id)
     assert [len(c.line_ids) for c, _ in split] == [4, 4, 2]
+
+
+def test_an_empty_reply_keeps_the_source_instead_of_sinking_the_chunk(
+    tmp_path: Path,
+) -> None:
+    """The prompt says "identifiant seul" for an unreadable line; obeying it
+    must not cost the chunk three retries and a downgrade (VR-9)."""
+    asset = build_image_asset("p1", _page(tmp_path))
+    request = _request(asset)
+    aliases = line_aliases([ln.line_id for ln in request.lines])
+    reply = {
+        "lines": [
+            {"line_id": aliases["tl_0"], "corrected_text": ""},
+            {"line_id": aliases["tl_1"], "corrected_text": "ligne numéro 1"},
+            {"line_id": aliases["tl_2"], "corrected_text": "   "},
+        ]
+    }
+    producer = CompositeVisionEditProducer(_FakeClient(reply), "key", "model")
+    script, _ = asyncio.run(producer.produce(request, options=ProducerOptions()))
+    ops = {op.line_id: op.text for op in script.ops if isinstance(op, ReplaceLine)}
+    assert ops == {
+        "tl_0": "ligne numero 0",
+        "tl_1": "ligne numéro 1",
+        "tl_2": "ligne numero 2",
+    }
