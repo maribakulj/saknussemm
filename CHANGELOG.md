@@ -56,6 +56,13 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- `open_page(asset)` et `crop_region(..., source_image=…)` : la page est
+  décodée **une fois par chunk** et le recadrage est converti, pas la page.
+  Jusque-là chaque recadrage transposait et convertissait la page entière —
+  deux copies par ligne, vingt lignes par chunk ; sur une page de presse de
+  6 867 × 9 329 px, macOS a tué le run. Les octets de chaque recadrage sont
+  identiques, donc les empreintes enregistrées tiennent (`VR-8`).
+
 - **`with_corpus_notes(prompt, *notes)` et `CORPUS_NOTE_EARLY_MODERN_FRENCH`.**
   Le prompt générique ne sait pas quel siècle il corrige : à travers le
   pipeline sur OCR17+, `page_aligned` réécrivait `meritay-je` en

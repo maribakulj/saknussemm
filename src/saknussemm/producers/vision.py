@@ -69,6 +69,7 @@ __all__ = [
     "compose_line_strip",
     "crop_region",
     "line_aliases",
+    "open_page",
     "page_image",
     "verified_image_bytes",
 ]
@@ -248,6 +249,31 @@ def verified_image_bytes(asset: ImageAsset) -> bytes:
     return raw
 
 
+def open_page(asset: ImageAsset, *, source_bytes: bytes | None = None) -> Any:
+    """The page decoded once: the requested frame, EXIF-normalized, loaded.
+
+    Until 2026-09-24 :func:`crop_region` decoded the page, transposed it and
+    CONVERTED IT WHOLE for every line it cropped — two full copies of the
+    page per crop. On a 4 000-px book page that is a few dozen megabytes
+    and nobody noticed; on a 6 867 × 9 329 newspaper page it is two copies
+    of 190 MB per line, twenty lines per chunk, and macOS killed the run.
+    A producer opens the page once per chunk with this and hands the
+    result to every ``crop_region`` call; the crop is converted, not the
+    page. The pixels a crop yields are identical either way, so every
+    recorded crop hash still holds.
+    """
+    from PIL import Image, ImageOps  # lazy — I4
+
+    raw_bytes = (
+        source_bytes if source_bytes is not None else verified_image_bytes(asset)
+    )
+    with Image.open(io.BytesIO(raw_bytes)) as raw:
+        raw.seek(asset.frame_index)
+        page = ImageOps.exif_transpose(raw)
+        page.load()
+    return page
+
+
 def crop_region(
     asset: ImageAsset,
     coords: Coords,
@@ -256,6 +282,7 @@ def crop_region(
     mask_polygon: bool = False,
     encode_format: str = "PNG",
     source_bytes: bytes | None = None,
+    source_image: Any | None = None,
 ) -> Crop:
     """Crop ``coords`` from ``asset``'s image and return an encoded :class:`Crop`.
 
@@ -288,32 +315,36 @@ def crop_region(
     the read and the verification once: the producer does that per chunk.
     Passing them makes the caller responsible for what they hold, which is
     a different claim from the one this function makes about a file.
+    ``source_image`` goes one step further — the page already decoded by
+    :func:`open_page` — so a chunk pays the decode once too (VR-8).
     """
-    from PIL import Image, ImageDraw, ImageOps  # lazy — I4
+    from PIL import Image, ImageDraw  # lazy — I4
 
-    raw_bytes = (
-        source_bytes if source_bytes is not None else verified_image_bytes(asset)
+    page = (
+        source_image
+        if source_image is not None
+        else open_page(asset, source_bytes=source_bytes)
     )
-    with Image.open(io.BytesIO(raw_bytes)) as raw:
-        raw.seek(asset.frame_index)
-        transposed = ImageOps.exif_transpose(raw)
-        use_polygon = mask_polygon and bool(coords.polygon)
-        image = transposed.convert("RGBA" if use_polygon else "RGB")
-        img_w, img_h = image.size
+    use_polygon = mask_polygon and bool(coords.polygon)
+    img_w, img_h = page.size
 
-        box = _apply_margin(_xml_bbox_to_pixels(coords, asset.transform), margin_ratio)
-        left, top, right, bottom = _clamp_box(box, int(img_w), int(img_h))
-        crop = image.crop((left, top, right, bottom))
+    box = _apply_margin(_xml_bbox_to_pixels(coords, asset.transform), margin_ratio)
+    left, top, right, bottom = _clamp_box(box, int(img_w), int(img_h))
+    # Crop FIRST, convert the crop: converting the page before cropping made
+    # a copy of the whole page per line (see ``open_page``).
+    crop = page.crop((left, top, right, bottom)).convert(
+        "RGBA" if use_polygon else "RGB"
+    )
 
-        if use_polygon and coords.polygon is not None:
-            points = _polygon_pixels(coords.polygon, asset.transform, (left, top))
-            mask = Image.new("L", crop.size, 0)
-            ImageDraw.Draw(mask).polygon(points, fill=255)
-            crop.putalpha(mask)
+    if use_polygon and coords.polygon is not None:
+        points = _polygon_pixels(coords.polygon, asset.transform, (left, top))
+        mask = Image.new("L", crop.size, 0)
+        ImageDraw.Draw(mask).polygon(points, fill=255)
+        crop.putalpha(mask)
 
-        buffer = io.BytesIO()
-        crop.save(buffer, format=encode_format)
-        data = buffer.getvalue()
+    buffer = io.BytesIO()
+    crop.save(buffer, format=encode_format)
+    data = buffer.getvalue()
 
     return Crop(
         data=data,
@@ -525,7 +556,7 @@ class VisionEditProducer:
         # Read and verify ONCE per chunk. This loop cropped per line and
         # each crop reopened the file, so a 40-line chunk read the same scan
         # 40 times and verified it none.
-        page_bytes = verified_image_bytes(asset)
+        page = open_page(asset)
         images: list[ImagePart] = []
         for line in payload.lines:
             if line.geometry is None:
@@ -535,7 +566,7 @@ class VisionEditProducer:
                 line.geometry.coords,
                 margin_ratio=self._margin_ratio,
                 mask_polygon=self._mask_polygon,
-                source_bytes=page_bytes,
+                source_image=page,
             )
             images.append(
                 ImagePart(
@@ -818,7 +849,7 @@ class CompositeVisionEditProducer:
                 "page image (build it with build_image_asset), not a bare "
                 f"ImageRef; got {type(asset).__name__}"
             )
-        page_bytes = verified_image_bytes(asset)
+        page = open_page(asset)
         aliases = line_aliases([line.line_id for line in payload.lines])
         rows: list[tuple[str, Crop]] = []
         for line in payload.lines:
@@ -829,7 +860,7 @@ class CompositeVisionEditProducer:
                 line.geometry.coords,
                 margin_ratio=self._margin_ratio,
                 mask_polygon=self._mask_polygon,
-                source_bytes=page_bytes,
+                source_image=page,
             )
             rows.append((aliases[line.line_id], crop))
         if payload.lines and not rows:
