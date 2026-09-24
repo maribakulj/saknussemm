@@ -284,6 +284,14 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   `drift`) : une unité de césure dont la bouillie traversait, rendue à la
   source. `check_line` gagne `absorption: bool = True`.
 
+- **Le texte d'une opération d'édition est tenu en NFC** (`ReplaceLine.text`,
+  `ReplaceSpan.text`). Les parseurs lisent la source en NFC et les
+  réécrivains écrivent en NFC, mais un modèle répond dans la forme qu'il
+  veut : un « aisé » décomposé (e + U+0301) décidé tel quel était écrit
+  précomposé, la vérification après réécriture voyait deux chaînes
+  différentes et déclarait la page **non livrable** — vu trois fois sur
+  OCR17+ (Descartes, Corneille), par intermittence (`VR-14`).
+
 - **Une ligne corrigée peut désormais rapporter `review_required` plutôt que
   `corrected`.** C'est la seule rupture que `LineStatus.REVIEW_REQUIRED`
   introduit, et elle est délibérée : un consommateur qui filtre sur
