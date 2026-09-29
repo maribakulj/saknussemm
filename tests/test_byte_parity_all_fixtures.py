@@ -51,6 +51,22 @@ simplification est un échec de l'étape.
 La réécriture est invoquée sans arguments de provenance, donc ces empreintes
 sont indépendantes de la version de la bibliothèque.
 
+**Trois empreintes ont bougé le 2026-09-29, pour un changement délibéré
+de la géométrie du chemin lent** (``formats/alto/_geometry.py``) : les
+boîtes des mots que la correction ne touche pas sont désormais GARDÉES, et
+seuls les passages qu'elle a changés sont redessinés, dans les boîtes
+qu'ils consomment, avec des largeurs de lettres apprises sur la page.
+Classé par TextLine avant de régénérer : *Le Temps* scripted **6 lignes sur
+1 145**, ``sample.xml`` scripted **2 sur 10**, ``X0000002.xml`` drift **1 sur
+566** — toutes des lignes du chemin lent, géométrie seule (HPOS/WIDTH des
+String et SP), aucune dérive de texte ni de structure. Les enfants ne
+pavent plus la ligne de bord à bord : un mot gardé garde la boîte que le
+producteur lui avait donnée, blancs compris. Les empreintes ``identity``,
+``probe`` et les autres ``scripted`` n'ont pas bougé. Mesure qui a décidé
+du changement : dépôt ``hans``, rapport ``H21`` — 79-84 % de frontières
+justes pour la redistribution de toute la ligne, 98,6-99,8 % en gardant les
+boîtes et en n'ouvrant que la boîte touchée.
+
 **Deux empreintes ont bougé le 2026-08-25, et pour un défaut réel.**
 ``_compute_geometry`` pesait ses tokens en flottants — ``0.6`` par caractère
 d'espace — et sommait ces poids avec ``sum()``. CPython 3.12 a donné à
@@ -212,7 +228,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "sample.xml",
         "scripted",
-    ): "063fb36595536afcfb36a2138e9923c4d5dd227a3e4034f06fa2042b7ab2c8ef",
+    ): "1dfccc6a9af1db21ad1fe7970344faa5af3cc81e1ad274937cb99e80b045bdaa",
     (
         "sample.xml",
         "probe",
@@ -236,7 +252,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "X0000002.xml",
         "drift",
-    ): "ca6500002e33a3320f2611abae193e1ec2b0f0651c9f809ff388c46f2664f9e8",
+    ): "abc4a325276c85fcd180bece2d4bcbaa751f077a78f9e010def1a4799795387e",
     (
         "bnf-alto-prod-bpt6k5406037v-f40.xml",
         "identity",
@@ -420,7 +436,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k2324031_p0002.alto.xml",
         "scripted",
-    ): "61504f606340e6602033e3a50a21047186d7fb7a26c0c4871d6a4a696422d81b",
+    ): "8ddd2035ac2fe3b9ca8c1cebbedd71331794db8fc590300e779a2a4832c0932e",
     (
         "bpt6k2324031_p0002.alto.xml",
         "probe",

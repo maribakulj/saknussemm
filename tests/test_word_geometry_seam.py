@@ -120,17 +120,22 @@ class _Raises:
         raise RuntimeError("no model")
 
 
-def _resolve(resolver: object) -> list[tuple[str, int, int]]:
-    return _resolve_geometry(
-        resolver,  # type: ignore[arg-type]
-        _manifest(),
-        HPOS,
-        10,
-        WIDTH,
-        40,
-        list(TOKENS),
-        None,
+def _request(image: object | None = None) -> LineGeometryRequest:
+    return LineGeometryRequest(
+        hpos=HPOS,
+        width=WIDTH,
+        tokens=tuple(TOKENS),
+        line_id=_manifest().line_id,
+        vpos=10,
+        height=40,
+        image=image,
     )
+
+
+def _resolve(resolver: object) -> list[tuple[str, int, int]]:
+    # anchors=None: the middle tier is off, so every failure mode below
+    # must land on the proportional geometry, as before that tier existed
+    return _resolve_geometry(resolver, _request(), None)  # type: ignore[arg-type]
 
 
 BASELINE = _compute_geometry(HPOS, WIDTH, list(TOKENS))
@@ -165,16 +170,7 @@ def test_the_request_carries_the_line_and_an_opaque_image() -> None:
     """
     sentinel = object()
     resolver = _Fixed(GOOD)
-    _resolve_geometry(
-        resolver,  # type: ignore[arg-type]
-        _manifest(),
-        HPOS,
-        10,
-        WIDTH,
-        40,
-        list(TOKENS),
-        sentinel,
-    )
+    _resolve_geometry(resolver, _request(sentinel), None)  # type: ignore[arg-type]
     assert resolver.seen is not None
     assert resolver.seen.image is sentinel
     assert resolver.seen.line_id == "L1"

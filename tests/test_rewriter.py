@@ -703,9 +703,20 @@ def test_slow_path_recomputes_sp_geometry(tmp_path):
         assert int(c.get("HPOS")) == cursor, f"{local} not contiguous"
         cursor += int(c.get("WIDTH"))
     sps = root.findall(f".//{_ns('SP')}")
-    # VPOS inherited from the line, stale position gone.
+    # VPOS inherited from the line. The SP's HPOS/WIDTH are recomputed, and
+    # since the anchored layout keeps the boxes of "un" and "deux" (both
+    # untouched by the correction), the recomputed blank between them is
+    # exactly the one the source drew: 60..72. What must never come back is
+    # a stale SP that contradicts the Strings around it.
     assert sps[0].get("VPOS") == "20"
-    assert sps[0].get("HPOS") != "60"
+    assert (sps[0].get("HPOS"), sps[0].get("WIDTH")) == ("60", "12")
+    strings = {s.get("CONTENT"): s for s in tl.findall(_ns("String"))}
+    assert (strings["un"].get("HPOS"), strings["un"].get("WIDTH")) == ("10", "50")
+    assert (strings["deux"].get("HPOS"), strings["deux"].get("WIDTH")) == ("72", "90")
+    # the inserted word sits after "deux" at its natural size, not stretched
+    # to the end of the line
+    assert int(strings["trois"].get("HPOS")) > 162
+    assert int(strings["trois"].get("HPOS")) + int(strings["trois"].get("WIDTH")) < 410
 
 
 # ---------------------------------------------------------------------------

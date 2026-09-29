@@ -103,8 +103,12 @@ _GOLDEN = {
     ("sample.xml", "identity"): (
         "6b1c8ea81c28076a10b65a8e147442063a4e8671cd4ee870ba67021920c0ed16"
     ),
+    # 2026-09-29, anchored slow-path geometry: 2 TextLines of 10 differ,
+    # geometry only -- the untouched words keep the producer's boxes and the
+    # appended " zz" is drawn after the last word at its natural size. See
+    # test_byte_parity_all_fixtures.py for the classification.
     ("sample.xml", "scripted"): (
-        "063fb36595536afcfb36a2138e9923c4d5dd227a3e4034f06fa2042b7ab2c8ef"
+        "1dfccc6a9af1db21ad1fe7970344faa5af3cc81e1ad274937cb99e80b045bdaa"
     ),
     ("X0000002.xml", "identity"): (
         "6b29f2269127f5ec9af15b6196e2e4c2ef48db4bf804aa616c2e0477f4db102a"
