@@ -254,6 +254,16 @@ def _resolve_geometry(
     so that the last tier is exactly the bytes saknussemm produced before
     either of the other two existed.
 
+    **Where the resolver sits is the resolver's choice.** By default it is
+    asked first, as it was before the anchored tier existed. A resolver
+    that declares ``last_resort = True`` is asked only when the anchored
+    layout could not answer: a line with no kept word (every word changed),
+    or one it cannot draw. That is the placement for a resolver that costs
+    something -- a CTC model, an image to open -- and that the page's own
+    boxes make unnecessary on 95-99 % of lines (hans, H22). It is read as
+    an attribute rather than passed down, so that neither the seam nor
+    ``rewrite_alto_file`` changes shape.
+
     The middle tier is what the page already knows (``_geometry``): the
     boxes of the words the correction did not touch stay where they are,
     and only the runs it changed are redrawn, inside the boxes they
@@ -263,13 +273,11 @@ def _resolve_geometry(
     one. It never opens an image.
     """
     tokens = list(request.tokens)
-    if resolver is not None:
-        try:
-            boxes = resolver.resolve(request)
-        except Exception:
-            boxes = ()
-        if _geometry_is_usable(boxes, tokens, request.hpos, request.width):
-            return [(b.text, b.hpos, b.width) for b in boxes]
+    last_resort = getattr(resolver, "last_resort", False)
+    if resolver is not None and not last_resort:
+        geo = _ask_resolver(resolver, request, tokens)
+        if geo is not None:
+            return geo
 
     if anchors is not None:
         geo = anchored_geometry(
@@ -283,7 +291,27 @@ def _resolve_geometry(
         ):
             return geo
 
+    if resolver is not None and last_resort:
+        geo = _ask_resolver(resolver, request, tokens)
+        if geo is not None:
+            return geo
+
     return _compute_geometry(request.hpos, request.width, tokens)
+
+
+def _ask_resolver(
+    resolver: WordGeometryResolver,
+    request: LineGeometryRequest,
+    tokens: list[str],
+) -> list[tuple[str, int, int]] | None:
+    """The resolver's answer when it is usable, ``None`` on any failure."""
+    try:
+        boxes = resolver.resolve(request)
+    except Exception:
+        return None
+    if _geometry_is_usable(boxes, tokens, request.hpos, request.width):
+        return [(b.text, b.hpos, b.width) for b in boxes]
+    return None
 
 
 def _box_int(value: str | None) -> int | None:
