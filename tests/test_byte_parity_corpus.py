@@ -115,8 +115,10 @@ _GOLDEN = {
     ),
     # See the module docstring, "Mixed-role break fix": one TextLine of 566
     # regained the trailing dash the writer used to drop.
+    # 2026-09-29, anchored slow-path geometry: 81 TextLines of 566 differ,
+    # geometry only (the " zz" lines). See test_byte_parity_all_fixtures.py.
     ("X0000002.xml", "scripted"): (
-        "d5b35e71ae41f6a8d8960cd180b88ce808a867d184cb92b984ee8e91a2764701"
+        "ff3d07a951bbd4d90004ec316eea7450aacdb468cef05b3c94f3d03ae968b2a8"
     ),
 }
 

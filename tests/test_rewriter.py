@@ -614,11 +614,19 @@ def test_slow_path_part1_preserves_hyp(tmp_path):
     assert hyp.get("WIDTH") == "16"
     line_hpos, line_width = 10, 400
     hyp_hpos, hyp_width = int(hyp.get("HPOS")), int(hyp.get("WIDTH"))
-    # The HYP sits flush at the line's right edge — children sum to WIDTH.
-    assert hyp_hpos + hyp_width == line_hpos + line_width
-    # No String overlaps the HYP: every String ends at or before the HYP.
-    for s in tl.findall(_ns("String")):
-        assert int(s.get("HPOS")) + int(s.get("WIDTH")) <= hyp_hpos
+    # Anchored layout (2026-09-29): the kept String "por-" stays in its
+    # source box and the HYP sits contiguously after it -- where the source
+    # drew it -- never overlapping it and never past the line's right edge.
+    # (Before, the Strings tiled the line and the HYP was flush right.)
+    last = tl.findall(_ns("String"))[-1]
+    assert hyp_hpos == int(last.get("HPOS")) + int(last.get("WIDTH"))
+    assert hyp_hpos + hyp_width <= line_hpos + line_width
+    assert last.get("CONTENT") == "por"  # the dash lives in the HYP
+    # The inserted "Il" was drawn before "por-" and squeezed in front of it,
+    # borrowing a few pixels from it rather than tiling the whole line.
+    first = tl.findall(_ns("String"))[0]
+    assert first.get("CONTENT") == "Il"
+    assert int(first.get("HPOS")) >= line_hpos
 
 
 def test_single_string_both_keeps_backward_subs(tmp_path):

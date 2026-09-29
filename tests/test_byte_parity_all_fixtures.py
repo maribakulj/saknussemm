@@ -51,21 +51,26 @@ simplification est un échec de l'étape.
 La réécriture est invoquée sans arguments de provenance, donc ces empreintes
 sont indépendantes de la version de la bibliothèque.
 
-**Trois empreintes ont bougé le 2026-09-29, pour un changement délibéré
-de la géométrie du chemin lent** (``formats/alto/_geometry.py``) : les
-boîtes des mots que la correction ne touche pas sont désormais GARDÉES, et
-seuls les passages qu'elle a changés sont redessinés, dans les boîtes
-qu'ils consomment, avec des largeurs de lettres apprises sur la page.
-Classé par TextLine avant de régénérer : *Le Temps* scripted **6 lignes sur
-1 145**, ``sample.xml`` scripted **2 sur 10**, ``X0000002.xml`` drift **1 sur
-566** — toutes des lignes du chemin lent, géométrie seule (HPOS/WIDTH des
-String et SP), aucune dérive de texte ni de structure. Les enfants ne
-pavent plus la ligne de bord à bord : un mot gardé garde la boîte que le
-producteur lui avait donnée, blancs compris. Les empreintes ``identity``,
-``probe`` et les autres ``scripted`` n'ont pas bougé. Mesure qui a décidé
-du changement : dépôt ``hans``, rapport ``H21`` — 79-84 % de frontières
-justes pour la redistribution de toute la ligne, 98,6-99,8 % en gardant les
-boîtes et en n'ouvrant que la boîte touchée.
+**Dix empreintes ont bougé le 2026-09-29, pour un changement délibéré de
+la géométrie du chemin lent** (``formats/alto/_geometry.py``) : les boîtes
+des mots que la correction ne touche pas sont désormais GARDÉES, et seuls
+les passages qu'elle a changés sont redessinés, dans les boîtes qu'ils
+consomment, avec des largeurs de lettres apprises sur la page. Classé par
+TextLine contre ``main`` avant de régénérer, lignes différentes / lignes du
+fichier : *Le Temps* scripted **160 / 1 145**, ``X0000002.xml`` scripted
+**81 / 566** et drift **1 / 566**, ``bnf-alto-prod`` scripted **4 / 27**,
+``bnf-alto-prod-latin1-control`` **4 / 27**, Gallica p.15 **4 / 31** et
+p.9 **6 / 43**, ``sample.xml`` scripted **2 / 10**, Descartes **1 / 33**,
+La Fayette **1 / 14** — toutes des lignes du chemin lent (le `` zz`` ajouté une ligne
+sur sept, ou la dérive), géométrie seule (HPOS/WIDTH des String, SP et
+HYP), aucune dérive de texte ni de structure. Les enfants ne pavent plus la
+ligne de bord à bord : un mot gardé garde la boîte que le producteur lui
+avait donnée, blancs compris, et le mot ajouté est dessiné après le dernier
+à sa taille naturelle. Les empreintes ``identity`` et ``probe`` n'ont pas
+bougé. Mesure qui a décidé du changement : dépôt ``hans``, rapports ``H21``
+et ``H22`` — 79-84 % de frontières justes pour la redistribution de toute
+la ligne, 98,6-99,8 % en gardant les boîtes et en n'ouvrant que la boîte
+touchée, vérifié de bout en bout sur le vrai ``rewrite_alto_file``.
 
 **Deux empreintes ont bougé le 2026-08-25, et pour un défaut réel.**
 ``_compute_geometry`` pesait ses tokens en flottants — ``0.6`` par caractère
@@ -244,7 +249,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "X0000002.xml",
         "scripted",
-    ): "d5b35e71ae41f6a8d8960cd180b88ce808a867d184cb92b984ee8e91a2764701",
+    ): "ff3d07a951bbd4d90004ec316eea7450aacdb468cef05b3c94f3d03ae968b2a8",
     (
         "X0000002.xml",
         "probe",
@@ -260,7 +265,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bnf-alto-prod-bpt6k5406037v-f40.xml",
         "scripted",
-    ): "d52018aa8f985cb88007c5393fc8fe770078652ddae427d6e914f1aa8d60f326",
+    ): "f731f9599931849856e68b503fabc288b0638bcd179a7a6b50ac901c88c1281b",
     (
         "bnf-alto-prod-bpt6k5406037v-f40.xml",
         "probe",
@@ -276,7 +281,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bnf-alto-prod-latin1-control.xml",
         "scripted",
-    ): "d52018aa8f985cb88007c5393fc8fe770078652ddae427d6e914f1aa8d60f326",
+    ): "f731f9599931849856e68b503fabc288b0638bcd179a7a6b50ac901c88c1281b",
     (
         "bnf-alto-prod-latin1-control.xml",
         "probe",
@@ -292,7 +297,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_alto4.xml",
         "scripted",
-    ): "21acc1235178245ba98c2d2f5dd682946f950acee4898da35f4b566cf3463293",
+    ): "18024cb1abbd063ea8db7f7bae87de15b783683eead02243377a8850cd0119cb",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_alto4.xml",
         "probe",
@@ -340,7 +345,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_alto4.xml",
         "scripted",
-    ): "9bcb4e309f66ce0b398e18c56b868249dccc10e7999014cd816d04241fa8c163",
+    ): "8dfcf1450bf8f2502c98207addf966b0643e61605b5ac6ae8c9711de7750ae14",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_alto4.xml",
         "probe",
@@ -420,7 +425,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k2206225_p0015.alto.xml",
         "scripted",
-    ): "91c2708922a5575133736f7ad2cce78ee5f2679dea78982a76e339ea685faa26",
+    ): "244af34abdf830aa62efd73d2e368d925b7d3b4070465dbff80d6b8fe0475ac5",
     (
         "bpt6k2206225_p0015.alto.xml",
         "probe",
@@ -436,7 +441,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k2324031_p0002.alto.xml",
         "scripted",
-    ): "8ddd2035ac2fe3b9ca8c1cebbedd71331794db8fc590300e779a2a4832c0932e",
+    ): "6e6f144d83fac00eb05986bbc099be8022ac1e8cb33f4592720dadfcf3d66eaa",
     (
         "bpt6k2324031_p0002.alto.xml",
         "probe",
@@ -452,7 +457,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k6478860m_p0009.alto.xml",
         "scripted",
-    ): "31222eec045ac2a1732b7d2b4fb9de757d72d8b462a9dd9925dbcf7598a8f875",
+    ): "44c3e9d1097d3f833bb9c940f6c71797c02ad5650fe44e20d257995133108e92",
     (
         "bpt6k6478860m_p0009.alto.xml",
         "probe",

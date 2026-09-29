@@ -156,11 +156,16 @@ def test_the_space_is_taken_from_the_hyp_slot_not_added_beside_it() -> None:
     assert children[-1][0] == "HYP", children
     assert children[-2][0] == "SP", children
 
+    # Anchored layout (2026-09-29): the Strings keep the boxes the source
+    # gave them and no longer tile the line, so "nothing moved" is now read
+    # directly -- no overlap, in order, and the SP + HYP still inside the
+    # line box, never past its right edge.
     cursor = int(textline.get("HPOS"))
     for local, hpos, width in children:
-        assert hpos == cursor, f"{local} at {hpos}, expected {cursor}: {children}"
-        cursor += width
-    assert cursor == int(textline.get("HPOS")) + int(textline.get("WIDTH")), children
+        assert hpos >= cursor, f"{local} at {hpos}, before {cursor}: {children}"
+        assert width >= 1, children
+        cursor = hpos + width
+    assert cursor <= int(textline.get("HPOS")) + int(textline.get("WIDTH")), children
 
 
 def test_a_space_after_the_mark_is_still_noise() -> None:

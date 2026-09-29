@@ -46,6 +46,7 @@ from statistics import median
 
 from lxml import etree
 
+from saknussemm.core.alignment import char_similarity
 from saknussemm.formats.alto._ns import _int_attr
 
 #: Below this fraction of the page's mean glyph width a learned value is
@@ -283,6 +284,46 @@ def _same_word(source: str, target: str) -> bool:
     return abs(len(source) - len(target)) <= max(1, len(source) // 4)
 
 
+def _is_anchor(
+    i: int,
+    pairs: tuple[tuple[int | None, int | None], ...],
+    sources: tuple[SourceBox | None, ...],
+    words: Sequence[str],
+) -> bool:
+    """Whether pair ``i`` pins its target word to its source box.
+
+    The length test alone let a split through: ``communémentet`` matched to
+    ``communément`` (13 vs 11 letters) passed as "the same word" and took
+    the whole glued box, leaving ``et`` to be drawn after it in a blank
+    that did not exist -- measured at 65 % of boundaries right on the BnF
+    page, against 99.7 % for the same layout handed the right box. So a
+    pair is refused when a neighbouring insertion or deletion EXPLAINS the
+    difference: the source read as ``target + inserted neighbour`` (a
+    split), or the target read as ``source + deleted neighbour`` (a merge),
+    resembles more than the pair alone does.
+    """
+    s, t = pairs[i]
+    assert s is not None and t is not None
+    box = sources[s]
+    assert box is not None
+    base = char_similarity(box.text, words[t])
+    for j in (i - 1, i + 1):
+        if not 0 <= j < len(pairs):
+            continue
+        s2, t2 = pairs[j]
+        if s2 is None and t2 is not None:
+            joined = words[t2] + words[t] if j < i else words[t] + words[t2]
+            if char_similarity(box.text, joined) > base:
+                return False
+        elif t2 is None and s2 is not None and sources[s2] is not None:
+            other = sources[s2]
+            assert other is not None
+            joined = other.text + box.text if j < i else box.text + other.text
+            if char_similarity(joined, words[t]) > base:
+                return False
+    return _same_word(box.text, words[t])
+
+
 @dataclass
 class _Item:
     """A run of consecutive target words sharing one horizontal interval."""
@@ -347,7 +388,7 @@ def _items(words: Sequence[str], anchors: LineAnchors) -> list[_Item] | None:
     items: list[_Item] = []
     current = _Item([], [], anchored=False)
     seen: set[int] = set()
-    for s, t in anchors.pairs:
+    for i, (s, t) in enumerate(anchors.pairs):
         box = anchors.sources[s] if s is not None else None
         if t is not None:
             if t in seen or t >= len(words):
@@ -357,7 +398,7 @@ def _items(words: Sequence[str], anchors: LineAnchors) -> list[_Item] | None:
             s is not None
             and t is not None
             and box is not None
-            and _same_word(box.text, words[t])
+            and _is_anchor(i, anchors.pairs, anchors.sources, words)
         ):
             if current.targets:
                 items.append(current)
@@ -429,6 +470,24 @@ def anchored_geometry(
         item.left = max(item.left, cursor + (1 if i > 0 else 0))
         item.right = min(item.right, right_edge)
         needed = 2 * len(item.targets) - 1
+        if item.right - item.left < needed and not item.sources:
+            # an inserted run with no blank to live in: borrow the missing
+            # pixels from the kept neighbour after it, then before it --
+            # a few pixels off one anchor beats losing every anchor of
+            # the line to the proportional fallback
+            deficit = needed - (item.right - item.left)
+            nxt = items[i + 1] if i + 1 < len(items) else None
+            if nxt is not None and nxt.right - nxt.left - deficit >= 2 * len(
+                nxt.targets
+            ):
+                nxt.left += deficit + 1
+                item.right = nxt.left - 1
+            elif i > 0 and (
+                prev := items[i - 1]
+            ).right - prev.left - deficit >= 2 * len(prev.targets):
+                prev.right -= deficit + 1
+                item.left = prev.right + 1
+                item.right = item.left + needed
         if item.right - item.left < needed:
             return None
         cursor = item.right

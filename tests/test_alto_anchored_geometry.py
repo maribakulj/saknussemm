@@ -142,12 +142,27 @@ def test_overlapping_source_boxes_are_clamped_not_refused() -> None:
     assert sp[2] >= 1
 
 
-def test_a_run_squeezed_below_a_pixel_per_token_yields_none() -> None:
+def test_a_run_with_no_blank_borrows_pixels_from_the_next_kept_word() -> None:
+    """``a x y b`` with one pixel between ``a`` and ``b``: the inserted run
+    needs three, so ``b`` gives them up rather than the whole line falling
+    back to the proportional layout."""
     anchors = _anchors(
         [("a", 0, 5), ("b", 6, 5)], [(0, 0), (None, 1), (None, 2), (1, 3)]
     )
-    # "a x y b": x and y and two spaces must fit in ONE pixel of blank
-    assert _layout("a x y b", anchors, width=11) is None
+    geo = _layout("a x y b", anchors, width=11)
+    assert geo is not None
+    assert geo[0] == ("a", 0, 5)
+    assert all(w >= 1 for _, _, w in geo)
+    assert all(x[1] + x[2] <= y[1] for x, y in zip(geo, geo[1:]))
+    b = geo[-1]
+    assert b[1] + b[2] == 11 and 1 <= b[2] < 5
+
+
+def test_a_run_no_neighbour_can_make_room_for_yields_none() -> None:
+    anchors = _anchors(
+        [("a", 0, 2), ("b", 3, 2)], [(0, 0), (None, 1), (None, 2), (None, 3), (1, 4)]
+    )
+    assert _layout("a x y z b", anchors, width=5) is None
 
 
 def test_no_geometry_on_any_source_yields_none() -> None:
