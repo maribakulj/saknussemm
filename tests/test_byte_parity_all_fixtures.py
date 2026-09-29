@@ -249,7 +249,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "X0000002.xml",
         "scripted",
-    ): "ff3d07a951bbd4d90004ec316eea7450aacdb468cef05b3c94f3d03ae968b2a8",
+    ): "9821e24d3c2bd2190c3b5e0531e7867272778fa2b8fd75235d7b186e3fd4d17d",
     (
         "X0000002.xml",
         "probe",
@@ -257,7 +257,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "X0000002.xml",
         "drift",
-    ): "abc4a325276c85fcd180bece2d4bcbaa751f077a78f9e010def1a4799795387e",
+    ): "3e3338c8a9643f90568d0246edfabfb312708879ef6d8e2e61a3be9a7da37ffa",
     (
         "bnf-alto-prod-bpt6k5406037v-f40.xml",
         "identity",
@@ -457,7 +457,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k6478860m_p0009.alto.xml",
         "scripted",
-    ): "44c3e9d1097d3f833bb9c940f6c71797c02ad5650fe44e20d257995133108e92",
+    ): "5dae799cef56dcc03d5413433cc7a30caceeab4e07cdccc3ccce2d3d1bf64098",
     (
         "bpt6k6478860m_p0009.alto.xml",
         "probe",

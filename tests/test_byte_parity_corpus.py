@@ -118,7 +118,7 @@ _GOLDEN = {
     # 2026-09-29, anchored slow-path geometry: 81 TextLines of 566 differ,
     # geometry only (the " zz" lines). See test_byte_parity_all_fixtures.py.
     ("X0000002.xml", "scripted"): (
-        "ff3d07a951bbd4d90004ec316eea7450aacdb468cef05b3c94f3d03ae968b2a8"
+        "9821e24d3c2bd2190c3b5e0531e7867272778fa2b8fd75235d7b186e3fd4d17d"
     ),
 }
 

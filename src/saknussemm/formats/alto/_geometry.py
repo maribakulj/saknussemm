@@ -57,6 +57,16 @@ _FLOOR = 0.05
 #: weights (1 per glyph, 0.6 per space) are used instead.
 _MIN_WORDS = 20
 
+#: The per-word constant of the fit. Some producers (ABBYY as exported to
+#: DjVu by the Internet Archive) give every word a box that includes the
+#: blank after it; without a constant that blank is smeared over the
+#: letters and every short word comes out too narrow -- 0.7 character off
+#: on most boundaries of the Newton of 1846. With it the fit puts the blank
+#: where it is, once per word: 84.6 -> 90.7 % of boundaries within half a
+#: character on that book, 81.6 -> 91.0 % on Johnson's dictionary, and no
+#: change on producers whose boxes hug the ink (it fits to about zero).
+INTERCEPT = ""
+
 
 def fold_char(char: str) -> str:
     """One character in, one out: case and diacritics folded away.
@@ -85,7 +95,7 @@ class WidthModel:
         return self.glyphs.get(fold_char(char), self.unit)
 
     def word(self, text: str) -> float:
-        return sum(self.glyph(c) for c in text)
+        return self.glyphs.get(INTERCEPT, 0.0) + sum(self.glyph(c) for c in text)
 
 
 def _solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
@@ -130,7 +140,8 @@ def _least_squares(
     ridge = 1e-6 * max(1.0, sum(ata[i][i] for i in range(n)) / max(1, n))
     for i in range(n):
         ata[i][i] += ridge
-        atb[i] += ridge * unit
+        # an unseen-ish glyph shrinks toward the mean, the constant toward 0
+        atb[i] += ridge * (0.0 if chars[i] == INTERCEPT else unit)
     return dict(zip(chars, _solve(ata, atb), strict=True))
 
 
@@ -153,10 +164,11 @@ def learn_widths(words: Iterable[tuple[str, int]], gaps: Iterable[int]) -> Width
         for c in text:
             counts[fold_char(c)] += 1
         if counts and width > 0:
+            counts[INTERCEPT] = 1
             rows.append((dict(counts), float(width)))
     blanks = [float(g) for g in gaps]
 
-    total_chars = sum(sum(c.values()) for c, _ in rows)
+    total_chars = sum(sum(c.values()) - 1 for c, _ in rows)
     if total_chars == 0:
         return WidthModel.proportional()
     unit = sum(w for _, w in rows) / total_chars
@@ -181,7 +193,9 @@ def learn_widths(words: Iterable[tuple[str, int]], gaps: Iterable[int]) -> Width
         kept_chars = sorted({c for counts, _ in keep for c in counts})
         beta.update(_least_squares(kept_chars, keep, unit))
 
-    glyphs = {c: max(floor, v) for c, v in beta.items()}
+    glyphs = {
+        c: (max(0.0, v) if c == INTERCEPT else max(floor, v)) for c, v in beta.items()
+    }
     space = max(floor, median(blanks)) if blanks else 0.6 * unit
     return WidthModel(glyphs=glyphs, space=space, unit=unit)
 
