@@ -430,6 +430,64 @@ def _items(words: Sequence[str], anchors: LineAnchors) -> list[_Item] | None:
     return items
 
 
+def _line_calibration(
+    items: list[_Item], words: Sequence[str], model: WidthModel
+) -> tuple[float, float]:
+    """This line's scale and space, read off its kept words.
+
+    The page model is the average of the page; this line may be a heading
+    in a larger corps or a note in a smaller one. The kept words say so:
+    their measured widths against what the model gives them is the line's
+    scale, and the blanks between two kept neighbours are the line's own
+    space. Measured on manufactured insertions (hans, H22): without this,
+    60-90 % of re-inserted words had both edges within half a character,
+    with it 74-88 %; the width was the weak edge.
+    """
+    kept = [item for item in items if item.anchored]
+    modelled = sum(model.word(words[item.targets[0]]) for item in kept)
+    measured = sum(item.right - item.left for item in kept)
+    scale = min(2.0, max(0.5, measured / modelled)) if modelled > 0 else 1.0
+    blanks = sorted(
+        b.left - a.right
+        for a, b in zip(items, items[1:])
+        if a.anchored and b.anchored and b.left > a.right
+    )
+    space = float(blanks[len(blanks) // 2]) if blanks else model.space * scale
+    return scale, space
+
+
+def _place_free_run(
+    items: list[_Item],
+    i: int,
+    words: Sequence[str],
+    model: WidthModel,
+    scale: float,
+    space: float,
+    hpos: int,
+    right_edge: int,
+) -> None:
+    """Draw a run of inserted words in the blank between its neighbours.
+
+    The page only knows that blank. The run is drawn there at its NATURAL
+    size -- the letter widths of this page at this line's scale, this
+    line's space -- flush left after the previous word, and compressed to
+    fit only when the blank is too narrow. Any slack stays in the space
+    before the next word.
+    """
+    item = items[i]
+    blank_left = items[i - 1].right if i > 0 else hpos
+    blank_right = items[i + 1].left if i + 1 < len(items) else right_edge
+    lead = space if i > 0 else 0.0
+    trail = space if i + 1 < len(items) else 0.0
+    run_natural = scale * sum(model.word(words[t]) for t in item.targets)
+    run_natural += space * (len(item.targets) - 1)
+    natural = lead + run_natural + trail
+    blank = blank_right - blank_left
+    fit = min(1.0, blank / natural) if natural > 0 else 1.0
+    item.left = blank_left + round(lead * fit)
+    item.right = item.left + round(run_natural * fit)
+
+
 def anchored_geometry(
     tokens: Sequence[str],
     is_space: Callable[[str], bool],
@@ -456,25 +514,13 @@ def anchored_geometry(
         if item.sources:
             item.left = min(b.hpos for b in item.sources)
             item.right = max(b.right for b in item.sources)
+
+    line_scale, line_space = _line_calibration(items, words, model)
     for i, item in enumerate(items):
-        if item.sources:
-            continue
-        # A run of inserted words: the page only knows the blank between
-        # its neighbours. It is drawn there at its NATURAL size -- the
-        # letter and space widths of this page -- flush left after the
-        # previous word, and compressed to fit only when the blank is too
-        # narrow. Any slack stays in the space before the next word.
-        blank_left = items[i - 1].right if i > 0 else hpos
-        blank_right = items[i + 1].left if i + 1 < len(items) else right_edge
-        lead = model.space if i > 0 else 0.0
-        trail = model.space if i + 1 < len(items) else 0.0
-        run_natural = sum(model.word(words[t]) for t in item.targets)
-        run_natural += model.space * (len(item.targets) - 1)
-        natural = lead + run_natural + trail
-        blank = blank_right - blank_left
-        scale = min(1.0, blank / natural) if natural > 0 else 1.0
-        item.left = blank_left + round(lead * scale)
-        item.right = item.left + round(run_natural * scale)
+        if not item.sources:
+            _place_free_run(
+                items, i, words, model, line_scale, line_space, hpos, right_edge
+            )
 
     # monotonic, inside the line, at least one pixel per token and one
     # pixel of blank between runs -- overlapping source boxes (0.9 % of

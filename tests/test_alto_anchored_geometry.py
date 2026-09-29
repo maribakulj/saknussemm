@@ -107,29 +107,54 @@ def test_an_inserted_word_is_drawn_at_its_natural_size_after_its_neighbour() -> 
     """``un fin`` -> ``un ami fin``: no box was consumed, so the word goes in
     the blank at the size this page would give it, flush left; the slack
     stays in the space before the next kept word."""
-    anchors = _anchors([("un", 0, 20), ("fin", 100, 30)], [(0, 0), (None, 1), (1, 2)])
+    # the kept boxes measure exactly what the model gives them (u+n = 16,
+    # f+i+n = 20), so the line's scale is 1 and its space the page's
+    anchors = _anchors([("un", 0, 16), ("fin", 100, 20)], [(0, 0), (None, 1), (1, 2)])
     geo = _layout("un ami fin", anchors)
     assert geo is not None
-    assert geo[0] == ("un", 0, 20) and geo[4] == ("fin", 100, 30)
+    assert geo[0] == ("un", 0, 16) and geo[4] == ("fin", 100, 20)
     # space 6, then a+m+i = 8+12+4 = 24
-    assert geo[1] == (" ", 20, 6)
-    assert geo[2] == ("ami", 26, 24)
-    assert geo[3] == (" ", 50, 50)
+    assert geo[1] == (" ", 16, 6)
+    assert geo[2] == ("ami", 22, 24)
+    assert geo[3] == (" ", 46, 54)
+
+
+def test_an_inserted_word_follows_the_corps_of_its_line() -> None:
+    """A heading set twice as large: the kept words measure twice the
+    model, so the inserted word and its spaces are drawn twice as large."""
+    anchors = _anchors([("un", 0, 32), ("fin", 200, 40)], [(0, 0), (None, 1), (1, 2)])
+    geo = _layout("un ami fin", anchors)
+    assert geo is not None
+    assert geo[1] == (" ", 32, 12)
+    assert geo[2] == ("ami", 44, 48)
+
+
+def test_an_inserted_word_takes_the_blank_its_own_line_shows() -> None:
+    """Two kept neighbours 30 px apart on this line: that, not the page's
+    6 px, is the space drawn before a word inserted further along."""
+    anchors = _anchors(
+        [("un", 0, 16), ("mi", 46, 16), ("fin", 200, 20)],
+        [(0, 0), (1, 1), (None, 2), (2, 3)],
+    )
+    geo = _layout("un mi ami fin", anchors)
+    assert geo is not None
+    assert geo[3] == (" ", 62, 30)
+    assert geo[4] == ("ami", 92, 24)
 
 
 def test_an_inserted_word_is_compressed_when_the_blank_is_too_narrow() -> None:
-    anchors = _anchors([("un", 0, 20), ("fin", 30, 30)], [(0, 0), (None, 1), (1, 2)])
+    anchors = _anchors([("un", 0, 16), ("fin", 26, 20)], [(0, 0), (None, 1), (1, 2)])
     geo = _layout("un ami fin", anchors)
     assert geo is not None
-    assert geo[0] == ("un", 0, 20) and geo[4] == ("fin", 30, 30)
+    assert geo[0] == ("un", 0, 16) and geo[4] == ("fin", 26, 20)
     assert all(w >= 1 for _, _, w in geo)
-    assert geo[2][1] + geo[2][2] < 30
+    assert geo[2][1] + geo[2][2] < 26
 
 
 def test_an_inserted_word_at_the_end_of_the_line_does_not_stretch_to_the_edge() -> None:
-    anchors = _anchors([("un", 0, 20)], [(0, 0), (None, 1)])
+    anchors = _anchors([("un", 0, 16)], [(0, 0), (None, 1)])
     geo = _layout("un ami", anchors, width=400)
-    assert geo == [("un", 0, 20), (" ", 20, 6), ("ami", 26, 24)]
+    assert geo == [("un", 0, 16), (" ", 16, 6), ("ami", 22, 24)]
 
 
 def test_overlapping_source_boxes_are_clamped_not_refused() -> None:

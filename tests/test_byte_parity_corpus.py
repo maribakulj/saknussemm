@@ -108,7 +108,7 @@ _GOLDEN = {
     # appended " zz" is drawn after the last word at its natural size. See
     # test_byte_parity_all_fixtures.py for the classification.
     ("sample.xml", "scripted"): (
-        "1dfccc6a9af1db21ad1fe7970344faa5af3cc81e1ad274937cb99e80b045bdaa"
+        "45a2eb4226d2f19a65f00e729c0e68a8f4d4501ab1a0c38e10d1a5f1acec8bcd"
     ),
     ("X0000002.xml", "identity"): (
         "6b29f2269127f5ec9af15b6196e2e4c2ef48db4bf804aa616c2e0477f4db102a"
@@ -118,7 +118,7 @@ _GOLDEN = {
     # 2026-09-29, anchored slow-path geometry: 81 TextLines of 566 differ,
     # geometry only (the " zz" lines). See test_byte_parity_all_fixtures.py.
     ("X0000002.xml", "scripted"): (
-        "9821e24d3c2bd2190c3b5e0531e7867272778fa2b8fd75235d7b186e3fd4d17d"
+        "d491cebff29631a5b10555b6a97730803f19226e827f79c350739d5c18db53b7"
     ),
 }
 

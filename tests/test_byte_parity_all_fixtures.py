@@ -57,7 +57,7 @@ des mots que la correction ne touche pas sont désormais GARDÉES, et seuls
 les passages qu'elle a changés sont redessinés, dans les boîtes qu'ils
 consomment, avec des largeurs de lettres apprises sur la page. Classé par
 TextLine contre ``main`` avant de régénérer, lignes différentes / lignes du
-fichier : *Le Temps* scripted **160 / 1 145**, ``X0000002.xml`` scripted
+fichier : *Le Temps* scripted **161 / 1 145**, ``X0000002.xml`` scripted
 **81 / 566** et drift **1 / 566**, ``bnf-alto-prod`` scripted **4 / 27**,
 ``bnf-alto-prod-latin1-control`` **4 / 27**, Gallica p.15 **4 / 31** et
 p.9 **6 / 43**, ``sample.xml`` scripted **2 / 10**, Descartes **1 / 33**,
@@ -66,7 +66,9 @@ sur sept, ou la dérive), géométrie seule (HPOS/WIDTH des String, SP et
 HYP), aucune dérive de texte ni de structure. Les enfants ne pavent plus la
 ligne de bord à bord : un mot gardé garde la boîte que le producteur lui
 avait donnée, blancs compris, et le mot ajouté est dessiné après le dernier
-à sa taille naturelle. Les empreintes ``identity`` et ``probe`` n'ont pas
+à sa taille naturelle — au corps de SA ligne (échelle et espace relus sur
+les mots gardés de la ligne : sur des insertions fabriquées, 60-90 → 74-88 %
+des mots remis avec leurs deux bords à un demi-caractère). Les empreintes ``identity`` et ``probe`` n'ont pas
 bougé. Mesure qui a décidé du changement : dépôt ``hans``, rapports ``H21``
 et ``H22`` — 79-84 % de frontières justes pour la redistribution de toute
 la ligne, 98,6-99,8 % en gardant les boîtes et en n'ouvrant que la boîte
@@ -233,7 +235,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "sample.xml",
         "scripted",
-    ): "1dfccc6a9af1db21ad1fe7970344faa5af3cc81e1ad274937cb99e80b045bdaa",
+    ): "45a2eb4226d2f19a65f00e729c0e68a8f4d4501ab1a0c38e10d1a5f1acec8bcd",
     (
         "sample.xml",
         "probe",
@@ -249,7 +251,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "X0000002.xml",
         "scripted",
-    ): "9821e24d3c2bd2190c3b5e0531e7867272778fa2b8fd75235d7b186e3fd4d17d",
+    ): "d491cebff29631a5b10555b6a97730803f19226e827f79c350739d5c18db53b7",
     (
         "X0000002.xml",
         "probe",
@@ -441,7 +443,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k2324031_p0002.alto.xml",
         "scripted",
-    ): "6e6f144d83fac00eb05986bbc099be8022ac1e8cb33f4592720dadfcf3d66eaa",
+    ): "d708078ed8e475b650719b5c63c73c57047279acf718e5d484259046e71949a8",
     (
         "bpt6k2324031_p0002.alto.xml",
         "probe",
@@ -457,7 +459,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "bpt6k6478860m_p0009.alto.xml",
         "scripted",
-    ): "5dae799cef56dcc03d5413433cc7a30caceeab4e07cdccc3ccce2d3d1bf64098",
+    ): "223f545decda875718064479f9627f45b642916f2b03851b5221690eac9a6ffb",
     (
         "bpt6k6478860m_p0009.alto.xml",
         "probe",
