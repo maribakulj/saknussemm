@@ -143,6 +143,24 @@ class GuardConfig(FrozenPolicy):
     #: was designed after seeing which lines failed, so it stays an option
     #: until confirmed on a corpus it has never seen.
     attachment_twin_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
+    #: Refuse a correction carrying MORE than this many consecutive words
+    #: the source line cannot vouch for -- laid against the source in
+    #: order, a word is anchored when half of its letters fall in common
+    #: stretches of three characters or more (``guards.unanchored_run``).
+    #: The floor above compares whole lines, so a correction whose first
+    #: half is written from nowhere and whose second half is right passes
+    #: it (``VR-12`` -- the *Regards* line of ``hans`` H19, a run of five).
+    #: ``None`` (the default) checks nothing. Measured at ``2`` on 32 470
+    #: changed lines, 6 077 distinct corrections, of 1930s press and
+    #: 17th-century print (``hans``, H23): it stops 46 of them -- all 25
+    #: that carry three consecutive words anchored neither in the source
+    #: nor in the ground truth, and 18 the ground truth vindicates (words
+    #: the OCR had missed and the model read off the image) -- with the
+    #: CER unchanged at 5.83 %. Nothing in the text tells the two kinds
+    #: apart, and the rule was shaped on the very runs that measure it:
+    #: it is an option, not a default, until confirmed on a corpus it has
+    #: never seen.
+    max_unanchored_words: int | None = Field(default=None, ge=1)
     #: Two adjacent corrections are duplicates above this similarity …
     duplicate_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     #: … but only when their sources were below this (genuinely distinct).

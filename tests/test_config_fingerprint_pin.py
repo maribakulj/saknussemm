@@ -76,12 +76,15 @@ def test_config_fingerprint_is_pinned():
     recorded in CHANGELOG under [Unreleased])
     → ``9271509b99da94e0`` when GuardConfig grew ``attachment_scope`` /
     ``attachment_twin_similarity`` and ChunkPlannerConfig ``coalesce_blocks``
-    (inert defaults; recorded in CHANGELOG under [Unreleased])."""
-    assert _default_pipeline().config_fingerprint() == "9271509b99da94e0"
+    (inert defaults; recorded in CHANGELOG under [Unreleased])
+    → ``9dc311ce0e6c93d8`` when GuardConfig grew ``max_unanchored_words``
+    (``VR-12``; default ``None`` checks nothing; recorded in CHANGELOG under
+    [Unreleased])."""
+    assert _default_pipeline().config_fingerprint() == "9dc311ce0e6c93d8"
 
 
 def test_each_policy_fingerprint_is_pinned():
-    assert GuardConfig().policy_fingerprint() == "32bf7bf6e915f388"
+    assert GuardConfig().policy_fingerprint() == "2a37c26c214a22fc"
     # The remaining four are pinned by-shape: any default change trips the
     # composite above, and these lock each policy independently.
     for policy in (ChunkPlannerConfig(), LossPolicy(), PairingPolicy(), RetryPolicy()):
@@ -103,6 +106,7 @@ _GUARD_FIELDS = {
     "duplicate_source_min_diff",
     "duplicate_threshold",
     "edit_line_max_changed_chars",
+    "max_unanchored_words",
     "edit_span_max_growth_ratio",
     "min_source_similarity",
     "neighbour_margin",
@@ -123,7 +127,7 @@ def test_guard_config_field_set_is_frozen():
     """23 knobs today. Removing one is a public-API break (each field is
     provenance-fingerprinted, §11) → deliberate edit here + a version bump."""
     assert set(GuardConfig.model_fields) == _GUARD_FIELDS
-    assert len(_GUARD_FIELDS) == 23
+    assert len(_GUARD_FIELDS) == 24
 
 
 def test_per_stage_twin_knobs_are_intentional_not_duplication():

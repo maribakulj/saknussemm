@@ -82,6 +82,38 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- **`GuardConfig(max_unanchored_words=…)` : refuser une demi-ligne écrite
+  de nulle part (`VR-12`).** Le plancher de ressemblance compare la ligne
+  entière ; une correction dont la première moitié n'a aucun appui dans la
+  source et dont la seconde est juste le passe — « *Lutte contre
+  l'impérialisme des puissances*, lutte contre le fascisme… » pour
+  « *raison au sein de l'Union rationaliste*, lutte contre le fascisme… »
+  (`hans`, H19). Le garde pose la correction contre la source **dans
+  l'ordre** et compte la plus longue suite de mots dont moins de la moitié
+  des lettres tombent dans une plage commune de trois caractères ou plus
+  (`guards.unanchored_run`) ; les mots d'une ou deux lettres ne comptent ni
+  ne coupent. Au-delà de la valeur donnée, la ligne est rendue à sa source
+  sous le motif `unanchored_run`.
+
+  **`None` par défaut : rien n'est vérifié.** Mesuré à `2` sur 32 470
+  lignes changées (6 077 corrections distinctes, presse des années 1930 et
+  imprimés du XVIIe, 29 runs — `hans`, H23) : 46 corrections arrêtées, dont
+  les 25 qui portent trois mots consécutifs ancrés ni dans la source ni dans
+  la vérité terrain, et 18 que la vérité terrain confirme — des mots que
+  l'OCR avait manqués et que le modèle a lus sur l'image. CER inchangé
+  (5,83 %). Rien dans le texte ne sépare les deux espèces (position dans la
+  ligne, longueur, origine dans une ligne voisine : mesurés), et la règle a
+  été dessinée sur les runs mêmes qui la mesurent : c'est une option, pas un
+  défaut, jusqu'à confirmation sur un corpus qu'elle n'a jamais vu.
+
+  L'empreinte de configuration par défaut change sans changement de
+  comportement : `GuardConfig().policy_fingerprint()` passe de
+  `32bf7bf6e915f388` à `2a37c26c214a22fc`, le `config_fingerprint()` par
+  défaut de `9271509b99da94e0` à `9dc311ce0e6c93d8`. La ligne de provenance
+  de chaque fichier livré par le pipeline change ; les TextLine sont
+  identiques (30 empreintes d'octets ré-épinglées, classées dans
+  `tests/test_byte_parity_all_fixtures.py`).
+
 - Les producteurs vision à alias (`CompositeVisionEditProducer`,
   `PageVisionEditProducer`) rendent une ligne vide à son texte source au
   lieu de la laisser au validateur. Leur prompt dit « rends son identifiant
