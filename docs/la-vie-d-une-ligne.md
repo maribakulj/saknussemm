@@ -116,6 +116,7 @@ la bibliothèque, pas une raison inédite.
 | `closer_to_another_line` | idem, une autre ligne de la page — seulement sous `GuardConfig(attachment_scope="page")`, qui étend la marge des deux voisines à toute la page |
 | `absorbs_previous_line` | la correction est « ligne précédente + cette ligne » concaténées |
 | `absorbs_next_line` | idem vers l'aval |
+| `unanchored_run` | la correction porte une suite de mots consécutifs sans appui dans la source de la ligne — seulement sous `GuardConfig(max_unanchored_words=…)`, `None` par défaut (`VR-12`) |
 
 Les trois derniers détectent la même faute — du texte a migré — sous trois
 formes que le modèle produit réellement.

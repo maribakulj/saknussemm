@@ -53,6 +53,8 @@ until it was moved to its caller.
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -191,6 +193,74 @@ def _closer_to_another_line(
     return None
 
 
+_WORDS = re.compile(r"[^\W\d_]+")
+
+#: A common stretch shorter than this anchors nothing (see ``unanchored_run``).
+_ANCHOR_MIN_STRETCH = 3
+
+
+def unanchored_run(source_ocr: str, corrected: str) -> int:
+    """Longest run of consecutive words of ``corrected`` the source cannot vouch for.
+
+    Order matters, so this is not a bag of words: the line that opened
+    ``VR-12`` replaced its first half with *"Lutte contre l'impérialisme des
+    puissances"* while its second, untouched half read *"lutte contre le
+    fascisme"* -- every invented word but two existed further along the
+    source. The correction is therefore laid against the source IN ORDER
+    (the same ``SequenceMatcher`` the floor uses), and a word is anchored
+    when at least half of its letters fall in common stretches of three
+    characters or more. Shorter stretches are scraps -- any two French
+    lines share an ``e l'`` and an ``on`` -- and counting them anchored
+    ``impérialisme`` on ``rationaliste``.
+
+    Words of one or two letters neither extend nor break a run: an article
+    between two invented nouns is not an anchor, and a restored ``à`` is
+    not an invention. Digits and punctuation are not words here.
+
+    A split or a merge stays anchored, since the letters are still there in
+    order: ``Maisiepenfois`` → ``Mais ie penfois`` counts zero.
+    """
+    low_source, low_corrected = source_ocr.casefold(), corrected.casefold()
+    matched = [False] * len(low_corrected)
+    for block in SequenceMatcher(
+        None, low_source, low_corrected, autojunk=False
+    ).get_matching_blocks():
+        if block.size >= _ANCHOR_MIN_STRETCH:
+            for k in range(block.b, block.b + block.size):
+                matched[k] = True
+    best = current = 0
+    for word in _WORDS.finditer(low_corrected):
+        length = word.end() - word.start()
+        if length <= 2:
+            continue
+        anchored = 2 * sum(matched[word.start() : word.end()]) >= length
+        current = 0 if anchored else current + 1
+        best = max(best, current)
+    return best
+
+
+def _writes_from_nowhere(
+    source_ocr: str,
+    corrected: str,
+    features: ProposalFeatures,
+    config: GuardConfig,
+) -> AcceptanceResult | None:
+    """Guard 4 — more consecutive unanchored words than the config allows.
+
+    ``None`` when nothing fires, and always when the guard is off
+    (``max_unanchored_words=None``, the default).
+    """
+    limit = config.max_unanchored_words
+    if limit is None or unanchored_run(source_ocr, corrected) <= limit:
+        return None
+    return AcceptanceResult(
+        accepted=False,
+        text=source_ocr,
+        reason="unanchored_run",
+        features=features,
+    )
+
+
 def _absorbs_a_neighbour(
     source_ocr: str,
     corrected: str,
@@ -323,7 +393,11 @@ def check_line(
         )
         if absorbed is not None:
             return absorbed
-    return AcceptanceResult(accepted=True, text=corrected, features=features)
+
+    # --- Guard 4: a run of words written from nowhere (opt-in, VR-12) ---
+    return _writes_from_nowhere(
+        source_ocr, corrected, features, config
+    ) or AcceptanceResult(accepted=True, text=corrected, features=features)
 
 
 def check_adjacent_duplicates(

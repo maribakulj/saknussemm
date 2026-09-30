@@ -99,6 +99,9 @@ FALLBACK_REASON_CODES: frozenset[str] = frozenset(
         "closer_to_another_line",
         "absorbs_previous_line",
         "absorbs_next_line",
+        # Sous ``max_unanchored_words`` : une suite de mots sans appui dans
+        # la source de la ligne (`VR-12`).
+        "unanchored_run",
         # Le défaut de `check_line` quand une branche de refus ne nomme pas
         # sa raison. Aucune ne le fait aujourd'hui ; il reste parce que le
         # site d'appel ne peut pas le prouver.
