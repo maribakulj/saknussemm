@@ -725,6 +725,11 @@ def test_slow_path_recomputes_sp_geometry(tmp_path):
     # to the end of the line
     assert int(strings["trois"].get("HPOS")) > 162
     assert int(strings["trois"].get("HPOS")) + int(strings["trois"].get("WIDTH")) < 410
+    # ... and the natural size is this line's: it is the only evidence of
+    # the file, read BEFORE the line is cleared. "un" and "deux" draw six
+    # letters in 140 px, so five letters are about 117 px -- not the 10 px
+    # of a model fitted on an emptied line.
+    assert 100 <= int(strings["trois"].get("WIDTH")) <= 135
 
 
 # ---------------------------------------------------------------------------

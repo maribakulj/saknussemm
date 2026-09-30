@@ -9,8 +9,6 @@ half of the file pins that fit.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from lxml import etree
 
@@ -19,6 +17,7 @@ from saknussemm.formats.alto._geometry import (
     SourceBox,
     WidthModel,
     anchored_geometry,
+    box_int,
     fold_char,
     learn_widths,
     page_widths,
@@ -248,15 +247,46 @@ def test_a_page_too_small_to_fit_keeps_the_incumbent_ratios_in_pixels() -> None:
     assert model.word("mi") == pytest.approx(2 * model.unit)
 
 
-def test_page_widths_reads_strings_of_any_alto_flavour_and_caches(
-    tmp_path: Path,
-) -> None:
+@pytest.mark.parametrize(
+    "opening",
+    ['<alto xmlns="http://www.loc.gov/standards/alto/ns-v3#">', "<alto>"],
+    ids=["v3", "no-namespace"],
+)
+def test_page_widths_reads_strings_of_any_alto_flavour(opening: str) -> None:
     strings = "".join(
         f'<String CONTENT="{t}" HPOS="{i * 40}" WIDTH="{w}"/>'
         for i, (t, w) in enumerate(PAGE_WORDS)
     )
-    xml = f'<alto xmlns="http://www.loc.gov/standards/alto/ns-v3#"><Layout><Page><TextBlock><TextLine>{strings}</TextLine></TextBlock></Page></Layout></alto>'
+    xml = f"{opening}<Layout><Page><TextBlock><TextLine>{strings}</TextLine></TextBlock></Page></Layout></alto>"
     root = etree.fromstring(xml.encode())
     model = page_widths(root)
     assert model.glyph("m") == pytest.approx(12, abs=1e-3)
-    assert page_widths(root) is model
+    # pure: the same tree gives the same model, and nothing is remembered
+    assert page_widths(root) == model
+
+
+@pytest.mark.parametrize("bad", ["abc", "inf", "nan", "1e999", ""])
+def test_a_malformed_string_box_is_not_evidence_and_not_an_error(bad: str) -> None:
+    """The rewriter never parsed String geometry before this module; a
+    malformed value on SOME String must not abort the whole file now."""
+    strings = "".join(
+        f'<String CONTENT="{t}" HPOS="{i * 40}" WIDTH="{w}"/>'
+        for i, (t, w) in enumerate(PAGE_WORDS)
+    )
+    broken = (
+        f'<String CONTENT="autre" HPOS="{bad}" WIDTH="50"/>'
+        f'<String CONTENT="encore" HPOS="10" WIDTH="{bad}"/>'
+    )
+    xml = f"<alto><TextLine>{strings}</TextLine><TextLine>{broken}</TextLine></alto>"
+    model = page_widths(etree.fromstring(xml.encode()))
+    assert model.glyph("m") == pytest.approx(12, abs=0.5)
+    assert box_int(bad) is None
+
+
+def test_a_float_total_is_the_same_float_on_every_python() -> None:
+    """``sum()`` is compensated from CPython 3.12 on and naive before: ten
+    times 0.1 is 1.0 on one and 0.9999999999999999 on the other, and a
+    boundary on a rounding tie moves a pixel. Every total goes through
+    ``fsum``, which is correctly rounded everywhere."""
+    model = WidthModel(glyphs={"a": 0.1}, space=0.1, unit=0.1)
+    assert model.word("a" * 10) == 1.0

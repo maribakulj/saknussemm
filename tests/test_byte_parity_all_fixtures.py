@@ -74,6 +74,14 @@ et ``H22`` — 79-84 % de frontières justes pour la redistribution de toute
 la ligne, 98,6-99,8 % en gardant les boîtes et en n'ouvrant que la boîte
 touchée, vérifié de bout en bout sur le vrai ``rewrite_alto_file``.
 
+``sample.xml`` scripted a été ré-épinglé une seconde fois le 2026-09-30,
+avant fusion : le modèle de largeurs est désormais appris AVANT que la
+première ligne reconstruite soit vidée (elle manquait à l'ajustement — sur
+un fichier d'une ligne, c'était toute l'évidence). Sur cette page de dix
+lignes cela compte : les deux mêmes TextLine, et dans chacune le seul
+`` zz`` inséré change de largeur (99 → 81 px, 57 → 55 px, le HYP suit de
+2 px). Aucune autre empreinte ne bouge.
+
 **Deux empreintes ont bougé le 2026-08-25, et pour un défaut réel.**
 ``_compute_geometry`` pesait ses tokens en flottants — ``0.6`` par caractère
 d'espace — et sommait ces poids avec ``sum()``. CPython 3.12 a donné à
@@ -235,7 +243,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "sample.xml",
         "scripted",
-    ): "45a2eb4226d2f19a65f00e729c0e68a8f4d4501ab1a0c38e10d1a5f1acec8bcd",
+    ): "0f5614cd95c60f6332c1e6078b577ac9f7ef15e5589703125c8af86ecf076a8c",
     (
         "sample.xml",
         "probe",

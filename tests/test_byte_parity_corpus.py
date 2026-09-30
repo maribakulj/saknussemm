@@ -108,7 +108,7 @@ _GOLDEN = {
     # appended " zz" is drawn after the last word at its natural size. See
     # test_byte_parity_all_fixtures.py for the classification.
     ("sample.xml", "scripted"): (
-        "45a2eb4226d2f19a65f00e729c0e68a8f4d4501ab1a0c38e10d1a5f1acec8bcd"
+        "0f5614cd95c60f6332c1e6078b577ac9f7ef15e5589703125c8af86ecf076a8c"
     ),
     ("X0000002.xml", "identity"): (
         "6b29f2269127f5ec9af15b6196e2e4c2ef48db4bf804aa616c2e0477f4db102a"

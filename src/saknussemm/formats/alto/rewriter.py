@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import re
+from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,8 +33,10 @@ from saknussemm.formats._xml import read_source_tree_classified
 from saknussemm.formats.alto._geometry import (
     LineAnchors,
     SourceBox,
+    DocWidths,
+    WidthModel,
     anchored_geometry,
-    page_widths,
+    box_int,
 )
 from saknussemm.formats.alto._text import reconstruct_textline
 from saknussemm.core.protocols import (
@@ -314,29 +317,20 @@ def _ask_resolver(
     return None
 
 
-def _box_int(value: str | None) -> int | None:
-    if not value:
-        return None
-    try:
-        return int(float(value))
-    except ValueError:
-        return None
-
-
 def _line_anchors(
-    el: etree._Element,
     orig_string_attribs: list[dict[str, str]],
     alignment: TokenAlignment,
+    model: WidthModel,
 ) -> LineAnchors:
     """What ``_resolve_geometry``'s middle tier needs, read before the clear.
 
     Source boxes come from the attributes saved off the Strings (they are
-    gone from the tree by the time geometry is drawn); the page model is
-    fitted once per document and cached by ``page_widths``.
+    gone from the tree by the time geometry is drawn); ``model`` was fitted
+    before the clear for the same reason.
     """
     sources: list[SourceBox | None] = []
     for attribs in orig_string_attribs:
-        hpos, width = _box_int(attribs.get("HPOS")), _box_int(attribs.get("WIDTH"))
+        hpos, width = box_int(attribs.get("HPOS")), box_int(attribs.get("WIDTH"))
         if hpos is None or width is None or width <= 0:
             sources.append(None)
         else:
@@ -344,7 +338,7 @@ def _line_anchors(
     return LineAnchors(
         sources=tuple(sources),
         pairs=tuple((p.source_index, p.target_index) for p in alignment.pairs),
-        model=page_widths(el.getroottree().getroot()),
+        model=model,
     )
 
 
@@ -1088,6 +1082,7 @@ def _rebuild_line(
     space_before_break: bool = False,
     word_geometry: WordGeometryResolver | None = None,
     image: object | None = None,
+    widths: DocWidths | None = None,
 ) -> tuple[dict[str, int], bool]:
     """Slow-path rebuild for any TextLine (normal, PART1, BOTH, PART2).
 
@@ -1175,6 +1170,8 @@ def _rebuild_line(
         if removed_hyps:
             losses["hyp_elements_removed"] = removed_hyps
 
+    # the page's letter widths, read while this line still has its Strings
+    width_model = (widths or DocWidths(el))()
     _clear_line(el, ns)
 
     hpos = _int_attr(el, "HPOS")
@@ -1224,7 +1221,7 @@ def _rebuild_line(
     geo = _resolve_geometry(
         word_geometry,
         _geometry_request(manifest, hpos, vpos, text_width, height, tokens, image),
-        _line_anchors(el, orig_string_attribs, alignment),
+        _line_anchors(orig_string_attribs, alignment, width_model),
     )
     str_n = sp_n = 0
     last_word_hpos = hpos
@@ -1336,6 +1333,7 @@ def rewrite_alto_file(
         lm.line_id: lm for page in page_manifests for lm in page.lines
     }
 
+    redraw = partial(_rebuild_line, word_geometry=word_geometry, widths=DocWidths(root))
     seen_element_ids: set[str] = set()
     textline_tag = _tag("TextLine", ns)
     for tl_el in root.iter(textline_tag):
@@ -1392,13 +1390,12 @@ def rewrite_alto_file(
             continue
 
         # --- Path 4: SLOW PATH (word count changed) ---
-        line_losses, move_suspected = _rebuild_line(
+        line_losses, move_suspected = redraw(
             tl_el,
             write_text,
             lm,
             ns,
             space_before_break=break_space,
-            word_geometry=word_geometry,
         )
         _apply_subs(tl_el, lm, ns)
         metrics.slow_path += 1

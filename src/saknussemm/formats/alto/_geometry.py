@@ -38,6 +38,7 @@ and the proportional geometry is drawn instead, exactly as before.
 
 from __future__ import annotations
 
+import math
 import unicodedata
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
@@ -47,7 +48,6 @@ from statistics import median
 from lxml import etree
 
 from saknussemm.core.alignment import char_similarity
-from saknussemm.formats.alto._ns import _int_attr
 
 #: Below this fraction of the page's mean glyph width a learned value is
 #: noise; nothing on a printed page is a twentieth of a letter.
@@ -95,7 +95,20 @@ class WidthModel:
         return self.glyphs.get(fold_char(char), self.unit)
 
     def word(self, text: str) -> float:
-        return self.glyphs.get(INTERCEPT, 0.0) + sum(self.glyph(c) for c in text)
+        return self.glyphs.get(INTERCEPT, 0.0) + _fsum(self.glyph(c) for c in text)
+
+
+def _fsum(values: Iterable[float]) -> float:
+    """A float sum that is the same float on every supported Python.
+
+    ``sum()`` became compensated in CPython 3.12: the same widths add up an
+    ulp apart on 3.11 and 3.12, and a boundary that falls on a rounding
+    tie lands one pixel away -- 15 lines in 20 000 on a fuzz. ``fsum`` is
+    correctly rounded, hence identical everywhere; every float total this
+    module rounds goes through it (``_compute_geometry`` met the same
+    defect and answered with integer weights).
+    """
+    return math.fsum(values)
 
 
 def _solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
@@ -137,7 +150,7 @@ def _least_squares(
             atb[i] += ki * width
             for j, kj in items:
                 ata[i][j] += ki * kj
-    ridge = 1e-6 * max(1.0, sum(ata[i][i] for i in range(n)) / max(1, n))
+    ridge = 1e-6 * max(1.0, _fsum(ata[i][i] for i in range(n)) / max(1, n))
     for i in range(n):
         ata[i][i] += ridge
         # an unseen-ish glyph shrinks toward the mean, the constant toward 0
@@ -171,7 +184,7 @@ def learn_widths(words: Iterable[tuple[str, int]], gaps: Iterable[int]) -> Width
     total_chars = sum(sum(c.values()) - 1 for c, _ in rows)
     if total_chars == 0:
         return WidthModel.proportional()
-    unit = sum(w for _, w in rows) / total_chars
+    unit = _fsum(w for _, w in rows) / total_chars
     floor = _FLOOR * unit
     if len(rows) < _MIN_WORDS:
         # too few equations to tell letters apart: the incumbent's weights,
@@ -182,7 +195,9 @@ def learn_widths(words: Iterable[tuple[str, int]], gaps: Iterable[int]) -> Width
     chars = sorted({c for counts, _ in rows for c in counts})
     beta = _least_squares(chars, rows, unit)
 
-    residuals = [w - sum(k * beta[c] for c, k in counts.items()) for counts, w in rows]
+    residuals = [
+        w - _fsum(k * beta[c] for c, k in counts.items()) for counts, w in rows
+    ]
     centre = median(residuals)
     mad = median(abs(r - centre) for r in residuals)
     cut = max(3 * 1.4826 * mad, 1.0)
@@ -204,10 +219,22 @@ def learn_widths(words: Iterable[tuple[str, int]], gaps: Iterable[int]) -> Width
 # The page model, learned once per document
 # ---------------------------------------------------------------------------
 
-#: id(root) -> (root, model). The root is kept so the id cannot be recycled
-#: under the entry; the dict is bounded so a long run does not accumulate.
-_CACHE: dict[int, tuple[etree._Element, WidthModel]] = {}
-_CACHE_SIZE = 4
+
+def box_int(value: str | None) -> int | None:
+    """A String's ``HPOS`` / ``WIDTH`` as an integer, ``None`` when unusable.
+
+    Deliberately NOT the strict ``_int_attr``: before this module existed
+    the rewriter never parsed a String's geometry, so a malformed value on
+    some String (``"abc"``, ``"inf"``, ``"1e999"``) was carried through
+    untouched. Reading every String of the document must not turn that
+    value into an error for the whole file; the box is simply not evidence.
+    """
+    if not value:
+        return None
+    try:
+        return int(float(value))
+    except (ValueError, OverflowError):
+        return None
 
 
 def _local(el: etree._Element) -> str:
@@ -215,17 +242,18 @@ def _local(el: etree._Element) -> str:
 
 
 def page_widths(root: etree._Element) -> WidthModel:
-    """The width model of the document ``root`` belongs to, fitted once.
+    """The width model of the document under ``root``, as the tree stands.
 
     Every String with a ``CONTENT`` and a positive ``WIDTH`` is an equation;
     every pair of consecutive Strings on a TextLine with geometry gives one
     blank. Namespace-agnostic on purpose: the rewriter serves several ALTO
     versions and one corpus with no namespace at all.
-    """
-    hit = _CACHE.get(id(root))
-    if hit is not None and hit[0] is root:
-        return hit[1]
 
+    Pure: no cache, no module state. ``DocWidths`` fits once per document,
+    BEFORE the rewriter clears the first line it rebuilds (a cleared line
+    has no Strings left to learn from -- on a one-line file that was the
+    whole evidence), and holds the model for the rest of the rewrite.
+    """
     words: list[tuple[str, int]] = []
     gaps: list[int] = []
     for line in root.iter():
@@ -236,22 +264,40 @@ def page_widths(root: etree._Element) -> WidthModel:
             if _local(child) != "String":
                 continue
             content = child.get("CONTENT") or ""
-            hpos = _int_attr(child, "HPOS", -1)
-            width = _int_attr(child, "WIDTH", 0)
+            hpos = box_int(child.get("HPOS"))
+            width = box_int(child.get("WIDTH"))
+            if width is None:
+                width = 0
             if content and width > 0:
                 words.append((content, width))
-            if hpos >= 0 and width > 0:
+            if hpos is not None and hpos >= 0 and width > 0:
                 if previous_right is not None:
                     gaps.append(hpos - previous_right)
                 previous_right = hpos + width
             else:
                 previous_right = None
 
-    model = learn_widths(words, gaps)
-    if len(_CACHE) >= _CACHE_SIZE:
-        _CACHE.pop(next(iter(_CACHE)))
-    _CACHE[id(root)] = (root, model)
-    return model
+    return learn_widths(words, gaps)
+
+
+class DocWidths:
+    """One document's width model, fitted at first use and then held.
+
+    The rewriter builds one per rewrite and calls it just before it clears
+    a line it rebuilds: the first call fits on the tree as it stands, with
+    that line's Strings still in it, and every later line of the document
+    gets the same model. State lives in the instance, so two rewrites --
+    two threads -- share nothing.
+    """
+
+    def __init__(self, el: etree._Element) -> None:
+        self._root = el.getroottree().getroot()
+        self._model: WidthModel | None = None
+
+    def __call__(self) -> WidthModel:
+        if self._model is None:
+            self._model = page_widths(self._root)
+        return self._model
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +404,7 @@ def _distribute(
     by the widest tokens -- the same rules as ``_compute_geometry`` so that
     the only difference between the two is the weight each token carries.
     """
-    total = sum(weights)
+    total = _fsum(weights)
     if total <= 0:
         per = max(1, width // max(1, len(tokens)))
         return [(t, hpos + i * per, per) for i, t in enumerate(tokens)]
@@ -444,7 +490,7 @@ def _line_calibration(
     with it 74-88 %; the width was the weak edge.
     """
     kept = [item for item in items if item.anchored]
-    modelled = sum(model.word(words[item.targets[0]]) for item in kept)
+    modelled = _fsum(model.word(words[item.targets[0]]) for item in kept)
     measured = sum(item.right - item.left for item in kept)
     scale = min(2.0, max(0.5, measured / modelled)) if modelled > 0 else 1.0
     blanks = sorted(
@@ -479,7 +525,7 @@ def _place_free_run(
     blank_right = items[i + 1].left if i + 1 < len(items) else right_edge
     lead = space if i > 0 else 0.0
     trail = space if i + 1 < len(items) else 0.0
-    run_natural = scale * sum(model.word(words[t]) for t in item.targets)
+    run_natural = scale * _fsum(model.word(words[t]) for t in item.targets)
     run_natural += space * (len(item.targets) - 1)
     natural = lead + run_natural + trail
     blank = blank_right - blank_left
