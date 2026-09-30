@@ -38,7 +38,7 @@ from collections.abc import Callable
 from saknussemm.core import decide, events as ev
 from saknussemm.core.acceptance import _apply_line_acceptance
 from saknussemm.core.context import RunContext
-from saknussemm.core.identity import LineRef
+from saknussemm.core.identity import LineRef, line_ref
 from saknussemm.core.reconcile import (
     _reconcile_chunk_hyphens,
     _unit_pool,
@@ -83,6 +83,7 @@ def _finish_successful_chunk(
     target_ids = set(chunk.targets())
     target_lines = [lm for lm in chunk_lines if lm.line_id in target_ids]
 
+    undecided = [lm for lm in target_lines if lm.corrected_text is None]
     reconciled_count = _reconcile_chunk_hyphens(
         guard_config=guard_config,
         emit=emit,
@@ -92,6 +93,8 @@ def _finish_successful_chunk(
         text_by_id=text_by_id,
         workspace=workspace,
     )
+    # What the reconciler just decided is what stage C revisits (VR-11):
+    # a target that was undecided before and holds a text now.
     _apply_line_acceptance(
         guard_config=guard_config,
         chunk_lines=target_lines,
@@ -99,6 +102,9 @@ def _finish_successful_chunk(
         all_lines_by_id=workspace.line_by_id,
         traces=workspace.traces,
         cross_page_partners=workspace.cross_page_partners,
+        reconciled=frozenset(
+            line_ref(lm) for lm in undecided if lm.corrected_text is not None
+        ),
     )
     _finalize_chunk_traces(chunk_lines=target_lines, traces=workspace.traces)
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from saknussemm.core import events as ev
+from saknussemm.core import decide, events as ev
 from saknussemm.core.attempt import _AttemptOutcome, _attempt_chunk
 from saknussemm.core.context import RunContext
 from saknussemm.core.identity import LineRef
@@ -298,7 +298,7 @@ class PageDriver:
         budget.spend(outcome.attempts_used)
 
         if outcome.response is not None:
-            return _finish_successful_chunk(
+            reconciled = _finish_successful_chunk(
                 guard_config=self.guard_config,
                 emit=self.emit,
                 ctx=ctx,
@@ -308,6 +308,14 @@ class PageDriver:
                 workspace=workspace,
                 usage=outcome.usage,
             )
+            # VR-10: the pair the attempt loop put back to OCR went through
+            # the passes as an identity; it is reported as what it is.
+            for lm in chunk_lines:
+                if lm.line_id in outcome.neutralised:
+                    decide.fall_back(
+                        lm, reason="pair_drift_fallback", traces=workspace.traces
+                    )
+            return reconciled
 
         return await self._handle_chunk_failure(
             ctx=ctx,

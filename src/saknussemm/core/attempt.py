@@ -30,6 +30,7 @@ a granularity instead.
 from __future__ import annotations
 
 import asyncio
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -45,7 +46,7 @@ from saknussemm.core.editing import (
     apply_edit_script,
 )
 from saknussemm.core.hyphenation import enrich_chunk_lines
-from saknussemm.core.identity import LineRef
+from saknussemm.core.identity import LineRef, line_ref
 from saknussemm.core.protocols import (
     EditProducer,
     ProducerOptions,
@@ -67,7 +68,7 @@ from saknussemm.core.schemas import (
     RetryPolicy,
     Usage,
 )
-from saknussemm.core.validator import validate_llm_response
+from saknussemm.core.validator import HyphenIntegrityError, validate_llm_response
 
 # ADR-008 (revised) — recoverability is an ALLOWLIST. Exactly the two
 # families the retry classifier can route are recoverable on the
@@ -343,6 +344,123 @@ def _validate_and_capture(
     return response
 
 
+def _without_pairs(
+    exc: HyphenIntegrityError,
+    script: EditScript,
+    propose: Callable[[EditScript], ProposalBatch],
+    lines_by_id: dict[str, LineManifest],
+    traces: dict[LineRef, LineTrace] | None,
+) -> tuple[ProposalBatch, frozenset[str]]:
+    """The reply with the refused hyphen pair(s) put back to OCR, validated.
+
+    Stage A refused the reply for ONE pair; until VR-10 that refusal cost
+    the whole chunk: retried, downgraded, and finally every line returned
+    to OCR. Measured on NewsEye (1930s press through the pipeline), a
+    garbled PART2 read as a single word did that to 64 chunks on one page
+    — 180 lines that had nothing to do with the pair, and were, corrected
+    by another producer, exactly as good as any other line (72 % better,
+    18 % worse: the corpus-wide rate). So on the LAST attempt the pair's
+    ops become identities (full coverage still holds), the reply is
+    re-validated with no further call (``propose`` is the loop's own
+    normalise-and-validate step), and the pair is reported
+    ``pair_drift_fallback`` while the other lines go through Stage B and
+    C like any accepted reply. A second pair refused in the same reply is
+    handled the same way; any other error propagates.
+
+    The proposal trace of the pair is what the producer actually said,
+    not the identity this function substituted: the report's proposal
+    stage is the audit trail of the model's words, and re-validating must
+    not rewrite it (``tests/test_status_truthfulness.py``).
+    """
+    dropped: set[str] = set()
+    said: dict[str, str | None] = {}
+    while True:
+        for lid in exc.line_ids:
+            lm = lines_by_id.get(lid)
+            trace = traces.get(line_ref(lm)) if traces is not None and lm else None
+            said.setdefault(lid, trace.model_corrected_text if trace else None)
+        dropped.update(exc.line_ids)
+        kept = EditScript(
+            ops=[op for op in script.ops if op.line_id not in dropped]
+            + [
+                ReplaceLine(line_id=lid, text=lines_by_id[lid].ocr_text)
+                for lid in sorted(dropped)
+                if lid in lines_by_id
+            ]
+        )
+        try:
+            response = propose(kept)
+        except HyphenIntegrityError as again:
+            if not again.line_ids or set(again.line_ids) <= dropped:
+                raise
+            exc = again
+            continue
+        for lid, text in said.items():
+            if text is not None and lid in lines_by_id:
+                _set_trace(traces, lines_by_id[lid], model_corrected_text=text)
+        return response, frozenset(dropped)
+
+
+def _propose(
+    script: EditScript,
+    *,
+    ctx: RunContext,
+    chunk: ChunkRequest,
+    chunk_lines: list[LineManifest],
+    hyphen_pairs: dict[str, str],
+    producer: EditProducer,
+    guard_config: GuardConfig,
+    traces: dict[LineRef, LineTrace] | None,
+) -> ProposalBatch:
+    """Normalise a script into the validator's shape and validate it — the
+    loop's own step, also what :func:`_without_pairs` re-runs."""
+    proposed = _script_to_raw(
+        script,
+        chunk_lines,
+        producer=producer,
+        guard_config=guard_config,
+        target_line_ids=set(chunk.targets()),
+    )
+    return _validate_and_capture(
+        ctx=ctx,
+        chunk=chunk,
+        chunk_lines=chunk_lines,
+        hyphen_pairs=hyphen_pairs,
+        proposed=proposed,
+        script=script,
+        guard_config=guard_config,
+        traces=traces,
+    )
+
+
+def _pair_fallback(
+    exc: Exception,
+    *,
+    last: bool,
+    script: EditScript | None,
+    propose: Callable[[EditScript], ProposalBatch],
+    chunk: ChunkRequest,
+    chunk_lines: list[LineManifest],
+    traces: dict[LineRef, LineTrace] | None,
+    emit: Callable[[ev.EngineEvent], None],
+) -> tuple[ProposalBatch, frozenset[str]] | None:
+    """VR-10 — on the LAST attempt, a hyphen pair the validator still refuses
+    falls alone and the rest of the reply stands. ``None`` in every other
+    case, and the ordinary failure path takes over."""
+    if not (isinstance(exc, HyphenIntegrityError) and exc.line_ids and last and script):
+        return None
+    lines_by_id = {lm.line_id: lm for lm in chunk_lines}
+    response, dropped = _without_pairs(exc, script, propose, lines_by_id, traces)
+    emit(
+        ev.Warning(
+            chunk_id=chunk.chunk_id,
+            message=f"pair_drift_fallback: {sorted(dropped)} — "
+            f"{sanitize_error(str(exc))[:100]}",
+        )
+    )
+    return response, dropped
+
+
 async def _produce(
     *,
     ctx: RunContext,
@@ -479,6 +597,10 @@ class _AttemptOutcome:
     #: calls whose response later failed validation — they were spent
     #: regardless, and the chunk_completed event reports the true total.
     usage: Usage | None
+    #: The hyphen pair the loop put back to its OCR text on the last
+    #: attempt so the rest of the reply could stand (VR-10). The caller
+    #: falls these lines back as ``pair_drift_fallback``; empty otherwise.
+    neutralised: frozenset[str] = frozenset()
 
 
 async def _attempt_chunk(
@@ -497,23 +619,29 @@ async def _attempt_chunk(
 ) -> _AttemptOutcome:
     """Call the edit producer with retries; return the outcome.
 
-    Retry strategy: up to ``max_attempts``, bounded by the caller to
-    the remaining budget, with the temperature ramp and backoffs the
-    injected :class:`RetryPolicy` defines — except after a
-    ``HyphenIntegrityError``, which pins every later attempt to 0.0 (the
-    producer mishandled a pair; a colder attempt sticks closer to source).
+    Up to ``max_attempts`` (the caller's remaining budget), on the injected
+    :class:`RetryPolicy`'s ramp — pinned to 0.0 after a hyphen violation,
+    since a colder attempt sticks closer to source. VR-10 settles a pair the
+    last attempt still refuses (:func:`_pair_fallback`).
     """
     hyphen_violation = False
     attempts_used = 0
     last_msg = ""
     chunk_usage = Usage()
-
+    propose = functools.partial(
+        _propose,
+        ctx=ctx,
+        chunk=chunk,
+        chunk_lines=chunk_lines,
+        hyphen_pairs=hyphen_pairs,
+        producer=producer,
+        guard_config=guard_config,
+        traces=traces,
+    )
     for attempt in range(1, max_attempts + 1):
         attempts_used = attempt
-        # Temperature comes from the injected RetryPolicy. A hyphen
-        # violation still pins the next attempt to 0.0 (the producer
-        # mishandled the pair; a colder attempt sticks closer to source).
         temperature = 0.0 if hyphen_violation else retry_policy.temperature_for(attempt)
+        script: EditScript | None = None
         try:
             script, usage = await _produce(
                 ctx=ctx,
@@ -525,29 +653,13 @@ async def _attempt_chunk(
                 attempt=attempt,
                 temperature=temperature,
             )
-            proposed = _script_to_raw(
-                script,
-                chunk_lines,
-                producer=producer,
-                guard_config=guard_config,
-                target_line_ids=set(chunk.targets()),
-            )
             # Charged before validation: a response the validator goes
             # on to refuse still cost its tokens, and both the run's total
             # and this chunk's must say so.
             if usage is not None:
                 ctx.usage = ctx.usage + usage
                 chunk_usage = chunk_usage + usage
-            response = _validate_and_capture(
-                ctx=ctx,
-                chunk=chunk,
-                chunk_lines=chunk_lines,
-                hyphen_pairs=hyphen_pairs,
-                proposed=proposed,
-                script=script,
-                guard_config=guard_config,
-                traces=traces,
-            )
+            response = propose(script)
             return _AttemptOutcome(response, attempts_used, False, "", chunk_usage)
 
         except ProviderPermanentError:
@@ -555,6 +667,20 @@ async def _attempt_chunk(
             # and falling back would fake success. Fatal for the run.
             raise
         except Exception as exc:
+            settled = _pair_fallback(
+                exc,
+                last=attempt == max_attempts,
+                script=script,
+                propose=propose,
+                chunk=chunk,
+                chunk_lines=chunk_lines,
+                traces=traces,
+                emit=emit,
+            )
+            if settled is not None:
+                return _AttemptOutcome(
+                    settled[0], attempts_used, False, "", chunk_usage, settled[1]
+                )
             will_retry, decision, last_msg = await _handle_failed_attempt(
                 exc=exc,
                 ctx=ctx,
@@ -569,10 +695,8 @@ async def _attempt_chunk(
                 if decision.is_hyphen_violation:
                     hyphen_violation = True
                 continue
-            # Attempts exhausted (or non-retryable error class). Do NOT
-            # fall back here — the caller decides between a granularity
-            # downgrade and the OCR fallback. ``can_downgrade`` is
-            # True only when the terminal error was retryable.
+            # Exhausted, or non-retryable: the CALLER chooses between a
+            # granularity downgrade and the OCR fallback.
             return _AttemptOutcome(
                 None, attempts_used, decision.is_retryable, last_msg, None
             )

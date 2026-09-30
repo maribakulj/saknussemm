@@ -79,11 +79,14 @@ def test_stricter_source_similarity_threads_through_check_line():
 # ---------------------------------------------------------------------------
 
 
-def test_vision_relaxes_only_source_similarity():
+def test_vision_relaxes_the_floor_and_widens_the_margin_scope():
     v = GuardConfig.vision()
     d = GuardConfig()
     # Source-similarity floor is relaxed …
     assert v.min_source_similarity < d.min_source_similarity
+    # … and the margin is held against the whole page: the two are one
+    # decision — the low floor is only safe with the wide scope (VR-7).
+    assert v.attachment_scope == "page" and d.attachment_scope == "adjacent"
     # … but every inter-line migration guard keeps the text default.
     assert v.neighbour_margin == d.neighbour_margin
     assert v.absorption_length_ratio == d.absorption_length_ratio

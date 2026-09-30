@@ -56,6 +56,17 @@ class ChunkPlannerConfig(FrozenPolicy):
     max_lines_per_request: int = Field(default=80, gt=0)
     line_window_size: int = Field(default=12, gt=0)
     line_window_overlap: int = Field(default=1, ge=0)
+    #: At BLOCK granularity, merge CONSECUTIVE block groups into one chunk
+    #: while the chunk stays within both budgets. Off (the historical
+    #: behaviour): one chunk per block group, however small. Measured on
+    #: OCR17+ through the pipeline: PAGE files whose regions are one or two
+    #: lines each gave 105 chunks for 251 lines — 32 on a single page — so a
+    #: vision producer that reads context (a labelled strip of 20 rows) got
+    #: strips of 2 or 3, and every call paid the envelope for nothing. Hyphen
+    #: units are already grouped before this runs, so a merge never severs
+    #: one. ``block_id`` is ``None`` on a merged chunk, as it already is for
+    #: a group of several blocks.
+    coalesce_blocks: bool = False
 
     @model_validator(mode="after")
     def _overlap_smaller_than_window(self) -> "ChunkPlannerConfig":
@@ -109,6 +120,29 @@ class GuardConfig(FrozenPolicy):
     #: Reject if the correction resembles a neighbour more than its own
     #: source by at least this margin (text migration suspected).
     neighbour_margin: float = Field(default=0.15, ge=0.0, le=1.0)
+    #: Which lines the margin is held against. ``"adjacent"`` (the
+    #: historical behaviour) compares the correction with the previous and
+    #: next line only; ``"page"`` compares it with EVERY other line of the
+    #: page. The wider scope exists because a mis-attached line is not
+    #: always a neighbour's text: a model that drops or splits one line
+    #: shifts everything after it, and a model shown a column reads across
+    #: it — measured on 5 111 lines of 1930s press, the offsets clustered at
+    #: ±1 but ran to ±15, and the adjacent scope let 1 746 of them through
+    #: where the page scope let none. The wider scope costs one similarity
+    #: per other line of the page per changed line, and refuses more on
+    #: pages whose lines repeat (twins — see the next field).
+    attachment_scope: Literal["adjacent", "page"] = "adjacent"
+    #: Exempt from the margin any candidate line whose OWN source already
+    #: resembles this line's source at least this much — two stage
+    #: directions naming the same character, a repeated verse. Between such
+    #: twins a mis-attachment is harmless by construction (the texts are
+    #: the same), while the margin can never be held (the correction equals
+    #: the other source). ``None`` (the default) exempts nothing. Measured
+    #: at 0.85 on OCR17+: it returns half of the margin's refusals and
+    #: still lets no mis-attachment through on any measured corpus — but it
+    #: was designed after seeing which lines failed, so it stays an option
+    #: until confirmed on a corpus it has never seen.
+    attachment_twin_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     #: Two adjacent corrections are duplicates above this similarity …
     duplicate_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     #: … but only when their sources were below this (genuinely distinct).
@@ -207,11 +241,13 @@ class GuardConfig(FrozenPolicy):
     def vision(cls, **overrides: Any) -> "GuardConfig":
         """The VLM guard profile (§5.2 bis, the vision/QE programme).
 
-        Relaxes ONLY the Stage-C source-similarity floor
-        (:attr:`min_source_similarity`); every inter-line migration guard
-        — neighbour proximity, absorption, hyphen-pair drift, duplication
-        — keeps its text default, because a VLM must no more merge or move
-        lines than a text model. An explicit override always wins, so a
+        Relaxes the Stage-C source-similarity floor
+        (:attr:`min_source_similarity`) and, since ``VR-7``, holds the
+        neighbour margin against the WHOLE page (:attr:`attachment_scope`)
+        — the margin is what makes the low floor safe. Every other
+        inter-line migration guard — absorption, hyphen-pair drift,
+        duplication — keeps its text default, because a VLM must no more
+        merge or move lines than a text model. An explicit override always wins, so a
         host that has run the vision benchmark can pin its own calibrated
         floor: ``GuardConfig.vision(min_source_similarity=0.22)``.
 
@@ -220,7 +256,14 @@ class GuardConfig(FrozenPolicy):
         structurally recorded decision, not a hidden mode.
         """
         params: dict[str, Any] = {
-            "min_source_similarity": cls._VISION_MIN_SOURCE_SIMILARITY
+            "min_source_similarity": cls._VISION_MIN_SOURCE_SIMILARITY,
+            # The low floor is only safe WITH the page-wide margin: floor
+            # alone let 64 swapped lines through on 5 111 lines of 1930s
+            # press (and 1 on HIPE); floor + margin let none through on any
+            # measured corpus, at 4.19 % against 4.39 % for the 0.35 floor
+            # on OCR17+ (VR-7, 2026-09-24). The two settings are one
+            # decision, so the profile carries both.
+            "attachment_scope": "page",
         }
         params.update(overrides)
         return cls(**params)
