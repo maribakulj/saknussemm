@@ -6,6 +6,8 @@ import unicodedata
 
 from pathlib import Path
 
+from lxml import etree
+
 from saknussemm.formats.page.parser import build_document_manifest, parse_page_file
 from saknussemm.formats.page.rewriter import (
     extract_output_texts,
@@ -110,7 +112,11 @@ def test_fast_path_updates_words_line_drops_conf_and_alternatives(tmp_path: Path
     assert out["ln1"] == "hello world"
 
 
-def test_slow_path_drops_words_when_count_changes(tmp_path: Path):
+def test_slow_path_keeps_the_untouched_words_and_draws_the_new_ones(tmp_path: Path):
+    """P4 since 2026-09-30: a changed word count no longer costs the line
+    every Word. The two words the correction left alone keep their element
+    and their Coords; the two it inserted are cut out of the line's polygon
+    over the blank between them."""
     p = _write(tmp_path, _RICH)
     doc = build_document_manifest([(p, p.name)])
     doc.pages[0].lines[0].corrected_text = "hello brave new world"  # 4 != 2 words
@@ -118,14 +124,47 @@ def test_slow_path_drops_words_when_count_changes(tmp_path: Path):
     _res = rewrite_page_file(p, doc.pages, "prov", "mdl")
     xml = _res.xml_bytes
     metrics = _res.metrics
-    paths = _res.rewriter_paths
-    assert paths["ln1"] == "slow_path"
+    assert _res.rewriter_paths["ln1"] == "slow_path"
     assert metrics.slow_path == 1
-    assert metrics.words_dropped == 2  # both Word elements removed
+    assert metrics.words_dropped == 0  # nothing the source had is gone
+    assert metrics.words_rebuilt == 2
     text = xml.decode("utf-8")
-    assert "<Word" not in text  # words gone; text lives at line level
+    assert text.count("<Word") == 4
+    # P1 — the kept words' geometry is untouched, byte for byte.
+    assert 'id="w1"><Coords points="0,0 90,0 90,20 0,20"/>' in text
+    assert 'id="w2"><Coords points="100,0 200,0 200,20 100,20"/>' in text
+    assert "<Unicode>hello</Unicode>" in text and "<Unicode>world</Unicode>" in text
+    # the inserted words live in the blank between the two, in order
+    root = etree.fromstring(xml)
+    words = [el for el in root.iter() if el.tag.endswith("}Word")]
+    assert [w.find("{*}TextEquiv/{*}Unicode").text for w in words] == [
+        "hello",
+        "brave",
+        "new",
+        "world",
+    ]
+    for w in words[1:3]:
+        xs = [int(pt.split(",")[0]) for pt in w.find("{*}Coords").get("points").split()]
+        assert 90 <= min(xs) < max(xs) <= 100
     out = extract_output_texts(xml, {"ln1"})
     assert out["ln1"] == "hello brave new world"
+
+
+def test_slow_path_still_drops_the_words_when_none_can_be_kept(tmp_path: Path):
+    """The correction merges the line's only two words: no word is left to
+    anchor the line, nothing honest can be drawn, and the Words go --
+    counted."""
+    p = _write(tmp_path, _RICH)
+    doc = build_document_manifest([(p, p.name)])
+    doc.pages[0].lines[0].corrected_text = "helowrld"  # 1 != 2 words
+
+    _res = rewrite_page_file(p, doc.pages, "prov", "mdl")
+    assert _res.rewriter_paths["ln1"] == "slow_path"
+    assert _res.metrics.words_dropped == 2  # both Word elements removed
+    assert _res.metrics.words_rebuilt == 0
+    assert "<Word" not in _res.xml_bytes.decode("utf-8")
+    out = extract_output_texts(_res.xml_bytes, {"ln1"})
+    assert out["ln1"] == "helowrld"
 
 
 def test_geometry_polygons_never_rewritten(tmp_path: Path):

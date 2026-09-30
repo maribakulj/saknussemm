@@ -51,6 +51,18 @@ simplification est un échec de l'étape.
 La réécriture est invoquée sans arguments de provenance, donc ces empreintes
 sont indépendantes de la version de la bibliothèque.
 
+**Sept empreintes PAGE ont bougé le 2026-09-30, et c'est le chemin lent
+de PAGE qui change** (spec §6.2 P4, ``formats/page/_words.py``). Une ligne
+dont la correction change le nombre de mots perdait tous ses ``Word`` ;
+elle garde maintenant ceux que la correction n'a pas touchés, ``Coords``
+intactes, et reçoit pour le passage changé des ``Word`` découpés dans les
+polygones existants. Classé par TextLine contre ``main`` : les deux pages
+NewsEye scripted **118 lignes sur 820** et **130 sur 914**, Descartes
+``page_raw`` **6 sur 32** (scripted et probe), La Fayette ``page_raw``
+**2 et 4 sur 13**, ``page_corrected`` **1 sur 13**. Sur chacune de ces
+lignes, et sur elles seules, des ``Word`` sont de retour là où il n'y en
+avait plus ; le texte de ligne est identique partout.
+
 **Trente empreintes ont bougé le 2026-09-30, par la seule ligne de
 provenance.** ``GuardConfig`` gagne ``max_unanchored_words`` (``VR-12``,
 défaut ``None`` : rien n'est vérifié), donc l'empreinte de configuration par
@@ -377,11 +389,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_raw.xml",
         "scripted",
-    ): "44a315b2ed7f1573b4c96661ca7629a739bdea80840e6336f39015e0037f1e9f",
+    ): "4473d34a3943741c255f01ff0d479c671b53dec28471292fe182dfbab7871a30",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_raw.xml",
         "probe",
-    ): "a53bfb58349d1e64d83e206eb535186528cd90b83698f74a4f9a70d357a6c608",
+    ): "0849676d2a76f1c72d5c12dd5749d03790a28c437d22b8f12a7e24780d6a64ae",
     (
         "Descartes1637_Discours_btv1b86069594_corrected_0014_page_raw.xml",
         "drift",
@@ -409,7 +421,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_corrected.xml",
         "scripted",
-    ): "4031b9982cf7ab9f4e933989ee93b73de231753898dc0fa99185d259f409980d",
+    ): "55503b551ca333092ca20e4c623c9f31c2ab748b0701a1d35de320075c281f00",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_corrected.xml",
         "probe",
@@ -425,11 +437,11 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_raw.xml",
         "scripted",
-    ): "279b32b0abeaedd28bd7110a4d7484d37ece2e73d300ac13055172d91ab80fc8",
+    ): "8d167c3d737569ae055f76f57b8dbd2f2df0a68696011494a7a7782faad505f6",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_raw.xml",
         "probe",
-    ): "b72097d227e9ff5bcb0e2bf9bc2149ce62e2abaf1f9c0034d70e724194a919d2",
+    ): "358f287bdf54216c7aefb11657f0ba1845ce4dc8c515e8f43b82b65a4c751d02",
     (
         "LaFayette1678_Cleves_btv1b8610820b_corrected_0011_page_raw.xml",
         "drift",
@@ -441,7 +453,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "0250199004.xml",
         "scripted",
-    ): "b1fddb64dfdcedd87a1f808de2dd9a8b75d6320880c83d21ab3b3530ead06a01",
+    ): "cd7e4fbdb32c80911f69ea867c309b39b12b731335656f0c6d603ecaff3946a1",
     (
         "0250199004.xml",
         "probe",
@@ -457,7 +469,7 @@ _GOLDEN: dict[tuple[str, str], str] = {
     (
         "0253902003.xml",
         "scripted",
-    ): "cad3ded0776a4415b9dca945ca9a866de066321a5ed86b49f6a45a998e61eb5a",
+    ): "747f74545be993b259d940de6956d315a5e1916909220e60f34d0be951fce37c",
     (
         "0253902003.xml",
         "probe",

@@ -399,6 +399,8 @@ class _Item:
     anchored: bool
     left: int = 0
     right: int = 0
+    #: Indices, in ``LineAnchors.sources``, of the boxes in ``sources``.
+    source_indices: tuple[int, ...] = ()
 
 
 def _distribute(
@@ -469,12 +471,13 @@ def _items(words: Sequence[str], anchors: LineAnchors) -> list[_Item] | None:
             if current.targets:
                 items.append(current)
             current = _Item([], [], anchored=False)
-            items.append(_Item([t], [box], anchored=True))
+            items.append(_Item([t], [box], anchored=True, source_indices=(s,)))
             continue
         if t is not None:
             current.targets.append(t)
-        if box is not None:
+        if box is not None and s is not None:
             current.sources.append(box)
+            current.source_indices += (s,)
     if current.targets:
         items.append(current)
     if len(seen) != len(words):
@@ -628,6 +631,12 @@ class AnchoredLayout(list[tuple[str, int, int]]):
     """
 
     guessed: bool = False
+    #: Per target word, in order: whether it kept its source box, and the
+    #: indices of the source boxes its run consumed (one for a kept word or
+    #: a split, several for a merge, none for an inserted word). What a
+    #: format that carries more than a box per word -- PAGE, a polygon --
+    #: needs to know to keep what was kept.
+    origins: tuple[tuple[bool, tuple[int, ...]], ...] = ()
 
 
 def anchored_geometry(
@@ -723,4 +732,9 @@ def anchored_geometry(
         return None
     layout = AnchoredLayout(triple for triple in out if triple is not None)
     layout.guessed = guessed
+    origins: dict[int, tuple[bool, tuple[int, ...]]] = {}
+    for item in items:
+        for target in item.targets:
+            origins[target] = (item.anchored, item.source_indices)
+    layout.origins = tuple(origins[k] for k in range(len(words)))
     return layout

@@ -1,7 +1,9 @@
 """PAGE XML rewriter — writes corrected text back without touching geometry.
 
-Implements spec 6.2 P1–P5/P7. Unlike ALTO there is no geometric slow path:
-polygons are never rewritten (P1). A modified line is handled as:
+Implements spec 6.2 P1–P5/P7. No existing polygon is ever rewritten (P1);
+since 2026-09-30 the slow path may ADD ``Word`` elements whose polygon is
+cut out of a polygon of the source (``_words``). A modified line is handled
+as:
 
   - **P3** — update the canonical (minimal ``@index``) line ``TextEquiv``:
     set its ``Unicode`` (and ``PlainText`` if present), drop its stale
@@ -11,10 +13,12 @@ polygons are never rewritten (P1). A modified line is handled as:
   - **P4** — word elements. When the corrected word count matches the
     number of ``Word`` children, update each ``Word``'s canonical
     ``TextEquiv`` in place, keep its ``Coords``, drop its ``@conf`` (fast
-    path). When the count changed, the ``Word`` children are removed and
-    the text lives at line level — fabricating word polygons on a skewed
-    line would be more dishonest than ALTO's bbox approximation; the loss
-    of word granularity is counted (slow path).
+    path). When the count changed (slow path), the ``Word``s the
+    correction left alone are kept as they are, and the run it changed is
+    given new ``Word``s cut out of the polygons it consumed — see
+    :mod:`saknussemm.formats.page._words`. When nothing can be kept the
+    ``Word`` children are removed and the text lives at line level, as
+    before. Every source ``Word`` removed is counted (``words_dropped``).
   - **P5** — the original hyphen character is preserved verbatim: a
     producer may not normalise ``¬`` → ``-`` (E5 extended).
   - **P7** — ``make_safe_parser`` throughout; provenance recorded as a
@@ -47,6 +51,7 @@ from saknussemm.formats.page._ns import (
     supports_metadata_item,
 )
 from saknussemm.formats._xml import read_source_tree_classified
+from saknussemm.formats.page._words import PageWidths, new_word, plan_words
 from saknussemm.formats.page._text import (
     canonical_line_text,
     canonical_textequiv,
@@ -76,6 +81,10 @@ class PageRewriterMetrics:
 
     # PAGE-specific provenance of what was dropped / detected.
     words_dropped: int = 0
+    #: ``Word`` elements created on the slow path for a run the correction
+    #: changed (``_words``). Not a loss, so not in ``_loss_counters``: the
+    #: source Words such a run consumed are counted in ``words_dropped``.
+    words_rebuilt: int = 0
     #: Lines that lost their OCR confidence — @conf removed because the
     #: correction made it false. Counted per LINE and named for the shared
     #: key both formats emit; it was ``conf_dropped`` and counted per
@@ -251,6 +260,60 @@ def _remove_words(
         metrics.words_dropped += 1
 
 
+class _WordRebuilder:
+    """P4 slow path: keep the Words the correction left alone, redraw the rest.
+
+    One per rewritten document. When nothing can be kept (see
+    :func:`_words.plan_words`) the line's Words are removed, which is what
+    the slow path always did.
+    """
+
+    def __init__(self, root: etree._Element, ns: str) -> None:
+        self._root, self._ns = root, ns
+        self._widths = PageWidths(root, ns)
+        self._ids: set[str] | None = None
+
+    def _fresh_id(self, line_id: str) -> str:
+        if self._ids is None:
+            self._ids = {i for el in self._root.iter() if (i := el.get("id"))}
+        n = 0
+        while (candidate := f"{line_id}_w{n}") in self._ids:
+            n += 1
+        self._ids.add(candidate)
+        return candidate
+
+    def rebuild_or_remove(
+        self,
+        tl: etree._Element,
+        word_els: list[etree._Element],
+        words: list[str],
+        metrics: PageRewriterMetrics,
+    ) -> None:
+        plans = plan_words(tl, word_els, words, self._ns, self._widths)
+        if plans is None:
+            _remove_words(tl, word_els, metrics)
+            return
+        at = list(tl).index(word_els[0])
+        tail = word_els[0].tail
+        kept = {plan.kept for plan in plans if plan.kept is not None}
+        for i, w_el in enumerate(word_els):
+            tl.remove(w_el)
+            metrics.words_dropped += i not in kept
+        placed: list[etree._Element] = []
+        for plan in plans:
+            if plan.kept is None:
+                el = new_word(self._fresh_id(tl.get("id", "")), plan, self._ns)
+                el.tail = tail
+                metrics.words_rebuilt += 1
+            else:
+                el = word_els[plan.kept]
+                _update_words_fast(tl, [el], [plan.text], self._ns, metrics)
+                _strip_custom_offsets(el, metrics)
+            placed.append(el)
+        for k, el in enumerate(placed):
+            tl.insert(at + k, el)
+
+
 def _strip_custom_offsets(el: etree._Element, metrics: PageRewriterMetrics) -> None:
     """P6: drop offset-anchored ``custom`` groups whose ranges are now stale.
 
@@ -352,7 +415,7 @@ def rewrite_page_file(
     tree = read_source_tree_classified(xml_path)
     root = tree.getroot()
     ns = _detect_namespace(root)
-    metrics = PageRewriterMetrics()
+    metrics, rebuilder = PageRewriterMetrics(), _WordRebuilder(root, ns)
     line_paths: dict[str, str] = {}
     losses_by_line: dict[str, dict[str, int]] = {}
 
@@ -415,7 +478,7 @@ def rewrite_page_file(
 
         # --- P4 word handling ---
         if word_els and len(words) != len(word_els):
-            _remove_words(tl, word_els, metrics)
+            rebuilder.rebuild_or_remove(tl, word_els, words, metrics)
             path = "slow_path"
         else:
             if word_els:
