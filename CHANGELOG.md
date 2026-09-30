@@ -71,7 +71,7 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
   **`None` par défaut : rien n'est vérifié.** Mesuré à `2` sur 32 470
   lignes changées (6 077 corrections distinctes, presse des années 1930 et
-  imprimés du XVIIe, 39 runs — `hans`, H23) : 46 corrections arrêtées, dont
+  imprimés du XVIIe, 29 runs — `hans`, H23) : 46 corrections arrêtées, dont
   les 25 qui portent trois mots consécutifs ancrés ni dans la source ni dans
   la vérité terrain, et 18 que la vérité terrain confirme — des mots que
   l'OCR avait manqués et que le modèle a lus sur l'image. CER inchangé
