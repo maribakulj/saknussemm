@@ -54,6 +54,32 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ## [Unreleased]
 
+### Fixed
+
+- **Chemin lent : deux défauts de la source ne se propagent plus dans la
+  géométrie ancrée**, trouvés en confrontant le rewriter à un OCR réel
+  (Tesseract) corrigé par une vérité terrain dont les boîtes au mot
+  viennent d'un autre producteur (`hans`, H24 — 1 268 lignes, 6 335
+  frontières).
+  - *Boîtes qui se chevauchent.* Un moteur qui dessine un mot trop large le
+    dessine par-dessus le suivant : `scrutin,` 274–469 sur `les` à 423. Le
+    mot de droite était rétréci à ce qui restait (cinq pixels), et quand il
+    ne restait rien toute la ligne retombait sur le prorata. La boîte de
+    gauche est maintenant ramenée au début de celle de droite, moins une
+    espace de la page.
+  - *Mot boxé comme un fragment.* Tesseract lit `du , personne` pour
+    `du départ, personne` et entoure la virgule de sept pixels, avec
+    quatre-vingt-dix pixels de « blanc » à sa gauche. Le mot corrigé était
+    écrasé dans ces sept pixels. Un passage dont les boîtes consommées font
+    moins de 60 % de sa largeur naturelle s'étend vers ses voisins gardés,
+    sans dépasser ce qui lui manque et en leur laissant une espace.
+
+  Sur le chemin lent de ce test : 87,0 → 89,5 % de frontières à un
+  demi-caractère ; sur les lignes dont l'OCR a moins de 15 % d'erreurs,
+  95,9 → 97,6 %, contre 98,4 % pour un alignement CTC sur l'image. Aucune
+  empreinte d'octets ne bouge : les fixtures n'ont ni chevauchement ni
+  fragment sur leurs lignes du chemin lent.
+
 ### Added
 
 - Les producteurs vision à alias (`CompositeVisionEditProducer`,

@@ -166,6 +166,54 @@ def test_overlapping_source_boxes_are_clamped_not_refused() -> None:
     assert sp[2] >= 1
 
 
+def test_a_box_drawn_over_its_neighbour_is_cut_back_to_where_the_neighbour_starts() -> (
+    None
+):
+    """Tesseract's ``scrutin,`` 274-469 over ``les`` at 423: the start of
+    ``les`` is the evidence, so ``scrutin,`` gives way -- and ``les`` keeps
+    its whole box instead of the five pixels the clamp left it."""
+    anchors = _anchors(
+        [("scrutin", 274, 195), ("les", 423, 52), ("voix", 488, 71)],
+        [(0, 0), (1, 1), (2, 2)],
+    )
+    geo = _layout("scrutin les voix", anchors, width=600)
+    assert geo is not None
+    assert geo[0] == ("scrutin", 274, 143)  # cut back to 423 less one space (6)
+    assert geo[1] == (" ", 417, 6)
+    assert geo[2] == ("les", 423, 52)
+    assert geo[4] == ("voix", 488, 71)
+
+
+def test_a_run_boxed_as_a_scrap_grows_into_the_blank_beside_it() -> None:
+    """``un , fin`` for ``un ami, fin``: the OCR boxed only the comma (4 px)
+    and left 60 px of "blank" before it. The corrected word takes the width
+    this page gives it, out of that blank, and the kept words do not move."""
+    anchors = _anchors(
+        [("un", 0, 16), (",", 80, 4), ("fin", 100, 20)],
+        [(0, 0), (1, 1), (2, 2)],
+    )
+    geo = _layout("un ami, fin", anchors, width=200)
+    assert geo is not None
+    assert geo[0] == ("un", 0, 16) and geo[4] == ("fin", 100, 20)
+    ami = geo[2]
+    # natural width a+m+i = 24 (the comma is not a letter of the model's
+    # alphabet here and takes the mean, 8): 32. It had 4.
+    assert ami[2] == 32
+    assert ami[1] >= 16 + 6 and ami[1] + ami[2] <= 100 - 6  # a space kept each side
+    assert ami[1] < 80 < ami[1] + ami[2]  # still over the scrap the OCR saw
+
+
+def test_a_run_that_has_its_width_does_not_grow() -> None:
+    """A split inside its own box stays inside it, blank or no blank."""
+    anchors = _anchors(
+        [("un", 0, 16), ("amimi", 100, 40), ("fin", 300, 20)],
+        [(0, 0), (None, 1), (1, 2), (2, 3)],
+    )
+    geo = _layout("un ami mi fin", anchors, width=400)
+    assert geo is not None
+    assert geo[2][1] == 100 and geo[4][1] + geo[4][2] == 140
+
+
 def test_a_run_with_no_blank_borrows_pixels_from_the_next_kept_word() -> None:
     """``a x y b`` with one pixel between ``a`` and ``b``: the inserted run
     needs three, so ``b`` gives them up rather than the whole line falling

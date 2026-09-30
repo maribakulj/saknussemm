@@ -57,6 +57,12 @@ _FLOOR = 0.05
 #: weights (1 per glyph, 0.6 per space) are used instead.
 _MIN_WORDS = 20
 
+#: A changed run is a scrap of its word when its consumed boxes are
+#: narrower than this share of its natural width (see ``_grow_into_blank``).
+#: The misses it exists for measured 8 to 15 %; an honest box measures
+#: 80 to 120 %.
+_SCRAP_RATIO = 0.6
+
 #: The per-word constant of the fit. Some producers (ABBYY as exported to
 #: DjVu by the Internet Archive) give every word a box that includes the
 #: blank after it; without a constant that blank is smeared over the
@@ -476,6 +482,31 @@ def _items(words: Sequence[str], anchors: LineAnchors) -> list[_Item] | None:
     return items
 
 
+def _trim_overlaps(items: list[_Item], model: WidthModel) -> None:
+    """Two kept boxes that overlap: believe where the second one STARTS.
+
+    An OCR engine that draws a word too wide draws it over the next word,
+    and the next word's left edge is still where the ink begins. Measured
+    on Tesseract ALTO against another producer's word boxes (``hans``,
+    H24): ``scrutin,`` boxed 274-469 over ``les`` at 423, ``Personnellement``
+    843-1179 over ``je`` at 1149 -- the truth put them at 421 and 1150.
+    The clamp that follows would keep the wide box and squeeze the next
+    word into what is left (``les`` came out five pixels wide); worse, when
+    nothing was left the whole line fell back to the proportional layout.
+    So the left box is cut back to the right box's start, less one space of
+    this page, provided it keeps room for its own tokens.
+    """
+    gap = max(1, round(model.space))
+    for prev, item in zip(items, items[1:], strict=False):
+        if not (prev.sources and item.sources):
+            continue
+        if not prev.left < item.left < prev.right:
+            continue
+        trimmed = item.left - gap
+        if trimmed - prev.left >= 2 * len(prev.targets) - 1:
+            prev.right = trimmed
+
+
 def _line_calibration(
     items: list[_Item], words: Sequence[str], model: WidthModel
 ) -> tuple[float, float]:
@@ -500,6 +531,53 @@ def _line_calibration(
     )
     space = float(blanks[len(blanks) // 2]) if blanks else model.space * scale
     return scale, space
+
+
+def _grow_into_blank(
+    items: list[_Item],
+    i: int,
+    words: Sequence[str],
+    model: WidthModel,
+    scale: float,
+    space: float,
+    hpos: int,
+    right_edge: int,
+) -> None:
+    """Let a changed run reach its natural width when the page shows room.
+
+    An OCR engine that misses the ink of a word often boxes only a scrap of
+    it: Tesseract read ``du , personne`` for ``du départ, personne`` and
+    drew seven pixels around the comma, with ninety pixels of "blank" on
+    its left where the word is. The correction ``départ,`` consumed that
+    seven-pixel box, and was squeezed into it. Measured against another
+    producer's boxes (``hans``, H24), these were the remaining misses on
+    clean lines.
+
+    So a run whose consumed boxes hold well under the width of the text it
+    now carries (``_SCRAP_RATIO``) grows toward its kept neighbours, by no
+    more than it lacks, leaving each of them one space of this line, and
+    taking from each side in proportion to the room that side has. A run
+    that roughly has its width -- every split and every merge of the bench,
+    whose box is the ink -- does not move: a line set a little tighter or
+    looser than the page must not be "corrected" into its blanks.
+    """
+    item = items[i]
+    natural = scale * sum(model.word(words[t]) for t in item.targets)
+    natural += space * (len(item.targets) - 1)
+    have = item.right - item.left
+    if have >= _SCRAP_RATIO * natural:
+        return
+    deficit = natural - have
+    left_limit = items[i - 1].right + space if i > 0 else hpos
+    right_limit = items[i + 1].left - space if i + 1 < len(items) else right_edge
+    room_left = max(0.0, item.left - left_limit)
+    room_right = max(0.0, right_limit - item.right)
+    room = room_left + room_right
+    if room <= 0:
+        return
+    take = min(deficit, room)
+    item.left -= round(take * room_left / room)
+    item.right += round(take * room_right / room)
 
 
 def _place_free_run(
@@ -561,7 +639,13 @@ def anchored_geometry(
             item.left = min(b.hpos for b in item.sources)
             item.right = max(b.right for b in item.sources)
 
+    _trim_overlaps(items, model)
     line_scale, line_space = _line_calibration(items, words, model)
+    for i, item in enumerate(items):
+        if item.sources and not item.anchored:
+            _grow_into_blank(
+                items, i, words, model, line_scale, line_space, hpos, right_edge
+            )
     for i, item in enumerate(items):
         if not item.sources:
             _place_free_run(
