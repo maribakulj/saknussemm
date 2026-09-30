@@ -73,7 +73,10 @@ def test_config_fingerprint_is_pinned():
     → ``15dc07cba9122106`` when LossPolicy grew ``min_alignment_score``
     (the vision/QE programme token_realign gate — default ``None`` keeps
     behaviour identical; the FIELD joins the fingerprinted surface,
-    recorded in CHANGELOG under [Unreleased])."""
+    recorded in CHANGELOG under [Unreleased])
+    → ``9271509b99da94e0`` when GuardConfig grew ``attachment_scope`` /
+    ``attachment_twin_similarity`` and ChunkPlannerConfig ``coalesce_blocks``
+    (inert defaults; recorded in CHANGELOG under [Unreleased])."""
     assert _default_pipeline().config_fingerprint() == "9271509b99da94e0"
 
 
@@ -117,7 +120,7 @@ _GUARD_FIELDS = {
 
 
 def test_guard_config_field_set_is_frozen():
-    """21 knobs today. Removing one is a public-API break (each field is
+    """23 knobs today. Removing one is a public-API break (each field is
     provenance-fingerprinted, §11) → deliberate edit here + a version bump."""
     assert set(GuardConfig.model_fields) == _GUARD_FIELDS
     assert len(_GUARD_FIELDS) == 23

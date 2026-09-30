@@ -256,7 +256,18 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   lignes échangées sur 5 111 lignes de presse (et 1 sur HIPE) ; avec la
   marge de page, aucune sur les corpus mesurés, à 4,19 % contre 4,39 % pour
   le plancher 0,35 sur OCR17+ (`VR-7`). L'empreinte du profil change ;
-  `GuardConfig()` ne bouge pas.
+  les valeurs par défaut de `GuardConfig()` ne bougent pas.
+
+- **L'empreinte de configuration par défaut change, sans changement de
+  comportement.** `GuardConfig` gagne deux champs (`attachment_scope`,
+  `attachment_twin_similarity`) et `ChunkPlannerConfig` un
+  (`coalesce_blocks`), tous à des défauts inertes ; ils entrent dans la
+  surface empreinte, donc `GuardConfig().policy_fingerprint()` passe de
+  `48fef9e0d6feb681` à `32bf7bf6e915f388` et le `config_fingerprint()` par
+  défaut de `15dc07cba9122106` à `9271509b99da94e0`. La ligne de provenance
+  (`config …`) de chaque fichier livré change pour qui n'a rien changé ; les
+  TextLine sont identiques (30 empreintes d'octets ré-épinglées, classées
+  dans `tests/test_byte_parity_all_fixtures.py`).
 
 - **Une paire de césure que l'étage A refuse encore au dernier essai retombe
   seule, et le reste du chunk passe** (`pair_drift_fallback`). Jusque-là la

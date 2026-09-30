@@ -24,7 +24,7 @@ PAGE = [
 ]
 
 
-def test_adjacent_scope_misses_a_shift_of_three_lines() -> None:
+def test_the_floor_already_refuses_a_shift_onto_an_unrelated_line() -> None:
     """The gap the wider scope exists for: line 1 receives line 4's text."""
     result = check_line(
         PAGE[1], PAGE[4], prev_ocr=PAGE[0], next_ocr=PAGE[2], config=GuardConfig()
@@ -34,7 +34,7 @@ def test_adjacent_scope_misses_a_shift_of_three_lines() -> None:
     assert result.reason == "too_different_from_source"
 
 
-def test_page_scope_refuses_a_correction_closer_to_a_far_line() -> None:
+def test_page_scope_accepts_a_far_lines_text_when_the_source_is_as_close() -> None:
     source = "En depit des societes de temperance, et malgre"
     proposal = "En dépit des sociétés de tempérance, et malgré"  # = PAGE[5]
     adjacent = check_line(
@@ -49,9 +49,9 @@ def test_page_scope_refuses_a_correction_closer_to_a_far_line() -> None:
         other_ocr=[PAGE[2], PAGE[3], PAGE[4], PAGE[5]],
         config=GuardConfig(attachment_scope="page"),
     )
-    # PAGE[5] resembles the proposal MORE than the source does, by more
-    # than the margin? Here the source is the same line with accents
-    # stripped, so its similarity is high and the margin holds: accepted.
+    # A known limit, pinned under its own name: the proposal IS PAGE[5],
+    # but the source is the same line with accents stripped, so it is
+    # nearly as close and the margin holds: accepted.
     assert paged.accepted
 
 
