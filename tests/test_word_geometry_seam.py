@@ -374,3 +374,30 @@ def test_a_last_resort_resolver_is_asked_without_anchors_and_may_still_fail() ->
     resolver = _Counting(GOOD[:2], last_resort=True)  # unusable answer
     assert _resolve_geometry(resolver, _request(), None) == BASELINE  # type: ignore[arg-type]
     assert resolver.calls == 1
+
+
+def _guessed_line() -> object:
+    """``de la`` where ``la`` was inserted by the correction: no box behind it."""
+    from saknussemm.formats.alto._geometry import LineAnchors, SourceBox, WidthModel
+
+    return LineAnchors(
+        sources=(SourceBox("de", 100, 18),),
+        pairs=((0, 0), (None, 1)),
+        model=WidthModel.proportional(),
+    )
+
+
+def test_a_last_resort_resolver_is_asked_when_the_page_had_to_suppose() -> None:
+    resolver = _Counting(OTHER, last_resort=True)
+    geo = _resolve_geometry(resolver, _request(), _guessed_line())  # type: ignore[arg-type]
+    assert resolver.calls == 1
+    assert geo == [("de", 100, 10), (" ", 110, 20), ("la", 130, 11)]
+
+
+def test_the_supposed_layout_is_kept_when_the_last_resort_declines() -> None:
+    """Better the page's guess than the proportional layout of the whole line."""
+    declining = _Counting(GOOD[:2], last_resort=True)  # unusable answer
+    geo = _resolve_geometry(declining, _request(), _guessed_line())  # type: ignore[arg-type]
+    assert declining.calls == 1
+    assert geo[0] == ("de", 100, 18)  # the kept word did not move
+    assert geo != BASELINE
