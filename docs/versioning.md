@@ -77,7 +77,7 @@ mechanism — both resolve to the same objects.
   `LossPolicy`, `ReviewPolicy`, `ConfidencePolicy`, `RoutingPolicy`.
   Renaming or removing one is a breaking change.
 
-  Their **default VALUES are not**, and `GuardConfig`'s 21 thresholds are
+  Their **default VALUES are not**, and `GuardConfig`'s 23 fields (21 thresholds, a scope and an optional twin exemption) are
   why. The library says of them, in its own plan, that "les gardes ne sont
   pas calibrées" — one model, one guard profile, two measured runs — and
   `GuardConfig.vision()` documents its own floor as "a safe default, not a

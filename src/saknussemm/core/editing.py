@@ -34,10 +34,10 @@ from __future__ import annotations
 import hashlib
 from typing import Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing_extensions import Annotated
 
-from saknussemm.core._norm import has_line_separator
+from saknussemm.core._norm import has_line_separator, nfc
 from saknussemm.core.pairing import HYPHEN_CHARS
 from saknussemm.core.schemas import (
     DEFAULT_GUARD_CONFIG,
@@ -105,6 +105,12 @@ class MatchAnchor(BaseModel):
 class ReplaceLine(BaseModel):
     op: Literal["replace_line"] = "replace_line"
     line_id: str
+    #: Held in NFC: the parsers read the source in NFC and the rewriters
+    #: write NFC, but a model answers in whatever form it likes — a
+    #: decomposed « aisé » (e + U+0301) decided here was written
+    #: precomposed, the post-render check saw two different strings and
+    #: declared the page undeliverable (VR-14). Normalising at the op is
+    #: the one place every producer passes through.
     text: str
     # line_ids may legitimately repeat across
     # FILES; only page_ids are document-unique. The final edit_script stamps
@@ -122,14 +128,25 @@ class ReplaceLine(BaseModel):
     #: additive; ``None`` = the producer declared nothing.
     producer_confidence: float | None = None
 
+    @field_validator("text")
+    @classmethod
+    def _nfc(cls, value: str) -> str:
+        return nfc(value)
+
 
 class ReplaceSpan(BaseModel):
     op: Literal["replace_span"] = "replace_span"
     line_id: str
     anchor: Union[MatchAnchor, RangeAnchor]
+    #: NFC, like ``ReplaceLine.text``.
     text: str
     #: See ``ReplaceLine.page_id``.
     page_id: str | None = None
+
+    @field_validator("text")
+    @classmethod
+    def _nfc(cls, value: str) -> str:
+        return nfc(value)
 
 
 EditOp = Annotated[Union[ReplaceLine, ReplaceSpan], Field(discriminator="op")]

@@ -266,7 +266,7 @@ def _try_block(
         root = find(bid)
         groups.setdefault(root, []).append(bid)
 
-    chunks: list[ChunkRequest] = []
+    grouped: list[tuple[list[str], list[LineManifest]]] = []
     for root in seen_roots:
         group_block_ids = groups[root]
         group_lines: list[LineManifest] = []
@@ -278,7 +278,12 @@ def _try_block(
             or len(group_lines) > config.max_lines_per_request
         ):
             return None  # too large → fall back to WINDOW
+        grouped.append((group_block_ids, group_lines))
+    if config.coalesce_blocks:
+        grouped = _coalesce(grouped, config)
 
+    chunks: list[ChunkRequest] = []
+    for group_block_ids, group_lines in grouped:
         block_id_label = group_block_ids[0] if len(group_block_ids) == 1 else None
         chunks.append(
             _make_chunk(
@@ -298,6 +303,34 @@ def _try_block(
         chunks=chunks,
         granularity=ChunkGranularity.BLOCK,
     )
+
+
+def _coalesce(
+    grouped: list[tuple[list[str], list[LineManifest]]],
+    config: ChunkPlannerConfig,
+) -> list[tuple[list[str], list[LineManifest]]]:
+    """Merge consecutive block groups while both budgets hold.
+
+    Greedy and in reading order: a group joins the chunk being built when
+    the lines and the characters still fit, else it starts the next one.
+    Each input group is already within budget (the caller returned
+    ``None`` otherwise), so every output chunk is too. Groups are never
+    reordered and never split — a hyphen unit spanning two blocks arrived
+    here as one group and leaves as part of one chunk.
+    """
+    out: list[tuple[list[str], list[LineManifest]]] = []
+    for block_ids, lines in grouped:
+        if out:
+            prev_ids, prev_lines = out[-1]
+            merged = prev_lines + lines
+            if (
+                len(merged) <= config.max_lines_per_request
+                and _total_chars(merged) <= config.max_input_chars_per_request
+            ):
+                out[-1] = (prev_ids + block_ids, merged)
+                continue
+        out.append((list(block_ids), list(lines)))
+    return out
 
 
 # ---------------------------------------------------------------------------
