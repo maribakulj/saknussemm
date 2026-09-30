@@ -38,10 +38,9 @@ This map answers that, per symbol, in four categories:
 to carry ``traces``, ``workspace`` or ``order`` in its real signature, read
 from ``src/``, and a ``value`` entry has to carry none of them; an ``alias``
 entry has to genuinely be an aliased import in the module it is imported
-from. Mislabelling fails here. Two entries are classes rather than
-functions (``_FinalizeOrder``, ``_RetryDecision``) and carry no signature to
-check — they are named with a reason and nothing more, which is the honest
-limit of this test.
+from. Mislabelling fails here. One entry is a class rather than a function
+(``_RetryDecision``) and carries no signature to check — it is named with a
+reason and nothing more, which is the honest limit of this test.
 
 What this file deliberately does NOT do is shrink the number. There is no
 bucket of gratuitous imports to remove: the audit's premise was wrong, and
@@ -93,10 +92,6 @@ _SEAMS: dict[str, tuple[str, str]] = {
         "the public seam can only show the two labels once each, and the "
         "mapping itself is what must not drift",
     ),
-    "saknussemm.core.acceptance._FinalizeOrder": (
-        "run-state",
-        "the pass order itself — the object `RM-05a` exists to pin",
-    ),
     "saknussemm.core.acceptance._apply_line_acceptance": (
         "run-state",
         "writes a line's decision and its fallback reason",
@@ -116,10 +111,16 @@ _SEAMS: dict[str, tuple[str, str]] = {
         "the pass whose position decides whether a correction it rejects was "
         "already written",
     ),
-    "saknussemm.core.finalize._preserve_break_chars": (
+    "saknussemm.core.finalize._finalize_document": (
         "run-state",
-        "rewrites corrected_text after the decision; the pass order test needs "
-        "to run it alone",
+        "the four document-wide passes and the order they run in; `H-3` "
+        "asserts that order on THIS function rather than on a token threaded "
+        "through the passes",
+    ),
+    "saknussemm.core.finalize._preserve_break_chars": (
+        "value",
+        "rewrites corrected_text on a manifest the test built; the pass order "
+        "test needs to run it alone",
     ),
     "saknussemm.core.outcome._extend_to_units": (
         "run-state",

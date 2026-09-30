@@ -28,18 +28,19 @@ module — each one depends on running against what the previous left behind:
 Free function: none of it is execution control — no producer, no retry,
 no observer.
 
-The order is not only stated here. Each pass takes a
-:class:`~saknussemm.core.acceptance._FinalizeOrder` token, declares what
-must have run before it, and REFUSES otherwise. The list above is the
-contract; the token is what makes breaking it an error instead of a
-different output file.
+The order is not only stated here. It is asserted on the production path:
+``tests/decision/test_finalize_pass_order.py`` runs ``_finalize_document``
+itself on a document where two passes interact, and pins the outcome. A
+swap changes the delivered TEXT of a line rather than a counter, which is
+what turns that assertion red. It replaced a runtime token that proved the
+same contract by threading a mutable argument through four private
+functions whose only caller already calls them in this order.
 """
 
 from __future__ import annotations
 
 from saknussemm.core import decide
 from saknussemm.core.acceptance import (
-    _FinalizeOrder,
     _global_adjacency_pass,
     _loss_policy_pass,
     _review_pass,
@@ -58,10 +59,7 @@ from saknussemm.core.schemas import (
 )
 
 
-def _preserve_break_chars(
-    document_manifest: DocumentManifest,
-    order: _FinalizeOrder | None = None,
-) -> None:
+def _preserve_break_chars(document_manifest: DocumentManifest) -> None:
     """Force the SOURCE line's word-break character onto every accepted
     correction that changed it (P5, found by the OCR17+ corpus).
 
@@ -79,9 +77,6 @@ def _preserve_break_chars(
     is a behaviour change bought for the tidiness of two verbs instead of
     three. The narrow verb keeps the call honest about what happened.
     """
-    if order is not None:
-        order.entering("break_chars", requires=("adjacency",))
-
     for page in document_manifest.pages:
         for lm in page.lines:
             if lm.corrected_text is not None and lm.corrected_text != lm.ocr_text:
@@ -105,27 +100,23 @@ def _finalize_document(
     loss policy set aside — corrections the token_realign gate refused to
     project, preserved for review instead of lost.
     """
-    order = _FinalizeOrder()
     _global_adjacency_pass(
         guard_config=guard_config,
         document_manifest=document_manifest,
         all_lines=all_lines,
         traces=traces,
-        order=order,
     )
-    _preserve_break_chars(document_manifest, order)
+    _preserve_break_chars(document_manifest)
     sidecar_entries = _loss_policy_pass(
         loss_policy=loss_policy,
         document_manifest=document_manifest,
         all_lines=all_lines,
         traces=traces,
-        order=order,
     )
     _review_pass(
         review_policy=review_policy,
         document_manifest=document_manifest,
         all_lines=all_lines,
         traces=traces,
-        order=order,
     )
     return derive_decision_set(document_manifest, traces), sidecar_entries
