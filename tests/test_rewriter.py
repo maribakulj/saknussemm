@@ -614,11 +614,19 @@ def test_slow_path_part1_preserves_hyp(tmp_path):
     assert hyp.get("WIDTH") == "16"
     line_hpos, line_width = 10, 400
     hyp_hpos, hyp_width = int(hyp.get("HPOS")), int(hyp.get("WIDTH"))
-    # The HYP sits flush at the line's right edge — children sum to WIDTH.
-    assert hyp_hpos + hyp_width == line_hpos + line_width
-    # No String overlaps the HYP: every String ends at or before the HYP.
-    for s in tl.findall(_ns("String")):
-        assert int(s.get("HPOS")) + int(s.get("WIDTH")) <= hyp_hpos
+    # Anchored layout (2026-09-29): the kept String "por-" stays in its
+    # source box and the HYP sits contiguously after it -- where the source
+    # drew it -- never overlapping it and never past the line's right edge.
+    # (Before, the Strings tiled the line and the HYP was flush right.)
+    last = tl.findall(_ns("String"))[-1]
+    assert hyp_hpos == int(last.get("HPOS")) + int(last.get("WIDTH"))
+    assert hyp_hpos + hyp_width <= line_hpos + line_width
+    assert last.get("CONTENT") == "por"  # the dash lives in the HYP
+    # The inserted "Il" was drawn before "por-" and squeezed in front of it,
+    # borrowing a few pixels from it rather than tiling the whole line.
+    first = tl.findall(_ns("String"))[0]
+    assert first.get("CONTENT") == "Il"
+    assert int(first.get("HPOS")) >= line_hpos
 
 
 def test_single_string_both_keeps_backward_subs(tmp_path):
@@ -703,9 +711,25 @@ def test_slow_path_recomputes_sp_geometry(tmp_path):
         assert int(c.get("HPOS")) == cursor, f"{local} not contiguous"
         cursor += int(c.get("WIDTH"))
     sps = root.findall(f".//{_ns('SP')}")
-    # VPOS inherited from the line, stale position gone.
+    # VPOS inherited from the line. The SP's HPOS/WIDTH are recomputed, and
+    # since the anchored layout keeps the boxes of "un" and "deux" (both
+    # untouched by the correction), the recomputed blank between them is
+    # exactly the one the source drew: 60..72. What must never come back is
+    # a stale SP that contradicts the Strings around it.
     assert sps[0].get("VPOS") == "20"
-    assert sps[0].get("HPOS") != "60"
+    assert (sps[0].get("HPOS"), sps[0].get("WIDTH")) == ("60", "12")
+    strings = {s.get("CONTENT"): s for s in tl.findall(_ns("String"))}
+    assert (strings["un"].get("HPOS"), strings["un"].get("WIDTH")) == ("10", "50")
+    assert (strings["deux"].get("HPOS"), strings["deux"].get("WIDTH")) == ("72", "90")
+    # the inserted word sits after "deux" at its natural size, not stretched
+    # to the end of the line
+    assert int(strings["trois"].get("HPOS")) > 162
+    assert int(strings["trois"].get("HPOS")) + int(strings["trois"].get("WIDTH")) < 410
+    # ... and the natural size is this line's: it is the only evidence of
+    # the file, read BEFORE the line is cleared. "un" and "deux" draw six
+    # letters in 140 px, so five letters are about 117 px -- not the 10 px
+    # of a model fitted on an emptied line.
+    assert 100 <= int(strings["trois"].get("WIDTH")) <= 135
 
 
 # ---------------------------------------------------------------------------

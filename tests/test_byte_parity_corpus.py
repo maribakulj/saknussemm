@@ -103,16 +103,22 @@ _GOLDEN = {
     ("sample.xml", "identity"): (
         "6b1c8ea81c28076a10b65a8e147442063a4e8671cd4ee870ba67021920c0ed16"
     ),
+    # 2026-09-29, anchored slow-path geometry: 2 TextLines of 10 differ,
+    # geometry only -- the untouched words keep the producer's boxes and the
+    # appended " zz" is drawn after the last word at its natural size. See
+    # test_byte_parity_all_fixtures.py for the classification.
     ("sample.xml", "scripted"): (
-        "063fb36595536afcfb36a2138e9923c4d5dd227a3e4034f06fa2042b7ab2c8ef"
+        "0f5614cd95c60f6332c1e6078b577ac9f7ef15e5589703125c8af86ecf076a8c"
     ),
     ("X0000002.xml", "identity"): (
         "6b29f2269127f5ec9af15b6196e2e4c2ef48db4bf804aa616c2e0477f4db102a"
     ),
     # See the module docstring, "Mixed-role break fix": one TextLine of 566
     # regained the trailing dash the writer used to drop.
+    # 2026-09-29, anchored slow-path geometry: 81 TextLines of 566 differ,
+    # geometry only (the " zz" lines). See test_byte_parity_all_fixtures.py.
     ("X0000002.xml", "scripted"): (
-        "d5b35e71ae41f6a8d8960cd180b88ce808a867d184cb92b984ee8e91a2764701"
+        "d491cebff29631a5b10555b6a97730803f19226e827f79c350739d5c18db53b7"
     ),
 }
 

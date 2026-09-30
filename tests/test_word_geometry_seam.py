@@ -120,17 +120,22 @@ class _Raises:
         raise RuntimeError("no model")
 
 
-def _resolve(resolver: object) -> list[tuple[str, int, int]]:
-    return _resolve_geometry(
-        resolver,  # type: ignore[arg-type]
-        _manifest(),
-        HPOS,
-        10,
-        WIDTH,
-        40,
-        list(TOKENS),
-        None,
+def _request(image: object | None = None) -> LineGeometryRequest:
+    return LineGeometryRequest(
+        hpos=HPOS,
+        width=WIDTH,
+        tokens=tuple(TOKENS),
+        line_id=_manifest().line_id,
+        vpos=10,
+        height=40,
+        image=image,
     )
+
+
+def _resolve(resolver: object) -> list[tuple[str, int, int]]:
+    # anchors=None: the middle tier is off, so every failure mode below
+    # must land on the proportional geometry, as before that tier existed
+    return _resolve_geometry(resolver, _request(), None)  # type: ignore[arg-type]
 
 
 BASELINE = _compute_geometry(HPOS, WIDTH, list(TOKENS))
@@ -165,16 +170,7 @@ def test_the_request_carries_the_line_and_an_opaque_image() -> None:
     """
     sentinel = object()
     resolver = _Fixed(GOOD)
-    _resolve_geometry(
-        resolver,  # type: ignore[arg-type]
-        _manifest(),
-        HPOS,
-        10,
-        WIDTH,
-        40,
-        list(TOKENS),
-        sentinel,
-    )
+    _resolve_geometry(resolver, _request(sentinel), None)  # type: ignore[arg-type]
     assert resolver.seen is not None
     assert resolver.seen.image is sentinel
     assert resolver.seen.line_id == "L1"
@@ -310,3 +306,71 @@ def test_the_public_entry_point_without_a_resolver_is_unchanged(tmp_path) -> Non
     a = rewrite_alto_file(path, [page], "test", "mock").xml_bytes
     b = rewrite_alto_file(path, [page], "test", "mock", word_geometry=None).xml_bytes
     assert a == b
+
+
+# --------------------------------------------------------------------------
+# last_resort — where the resolver sits among the three tiers
+# --------------------------------------------------------------------------
+
+
+def _anchored_line() -> object:
+    """``de | la`` kept as they are: a line the anchored tier can answer."""
+    from saknussemm.formats.alto._geometry import LineAnchors, SourceBox, WidthModel
+
+    return LineAnchors(
+        sources=(SourceBox("de", 100, 18), SourceBox("la", 124, 17)),
+        pairs=((0, 0), (1, 1)),
+        model=WidthModel.proportional(),
+    )
+
+
+def _unanchorable_line() -> object:
+    """Every word changed: nothing to keep, the anchored tier declines."""
+    from saknussemm.formats.alto._geometry import LineAnchors, SourceBox, WidthModel
+
+    return LineAnchors(
+        sources=(SourceBox("xxxxxxxx", 100, 18), SourceBox("yyyyyyyy", 124, 17)),
+        pairs=((0, 0), (1, 1)),
+        model=WidthModel.proportional(),
+    )
+
+
+class _Counting(_Fixed):
+    def __init__(self, boxes: tuple[TokenBox, ...], last_resort: bool) -> None:
+        super().__init__(boxes)
+        self.last_resort = last_resort
+        self.calls = 0
+
+    def resolve(self, request: LineGeometryRequest) -> tuple[TokenBox, ...]:
+        self.calls += 1
+        return super().resolve(request)
+
+
+OTHER = _boxes(("de", 100, 10), (" ", 110, 20), ("la", 130, 11))
+
+
+def test_by_default_the_resolver_is_asked_before_the_anchored_tier() -> None:
+    resolver = _Counting(OTHER, last_resort=False)
+    geo = _resolve_geometry(resolver, _request(), _anchored_line())  # type: ignore[arg-type]
+    assert resolver.calls == 1
+    assert geo == [("de", 100, 10), (" ", 110, 20), ("la", 130, 11)]
+
+
+def test_a_last_resort_resolver_is_not_asked_when_the_page_can_answer() -> None:
+    resolver = _Counting(OTHER, last_resort=True)
+    geo = _resolve_geometry(resolver, _request(), _anchored_line())  # type: ignore[arg-type]
+    assert resolver.calls == 0
+    assert geo == [("de", 100, 18), (" ", 118, 6), ("la", 124, 17)]
+
+
+def test_a_last_resort_resolver_is_asked_when_no_word_can_be_kept() -> None:
+    resolver = _Counting(OTHER, last_resort=True)
+    geo = _resolve_geometry(resolver, _request(), _unanchorable_line())  # type: ignore[arg-type]
+    assert resolver.calls == 1
+    assert geo == [("de", 100, 10), (" ", 110, 20), ("la", 130, 11)]
+
+
+def test_a_last_resort_resolver_is_asked_without_anchors_and_may_still_fail() -> None:
+    resolver = _Counting(GOOD[:2], last_resort=True)  # unusable answer
+    assert _resolve_geometry(resolver, _request(), None) == BASELINE  # type: ignore[arg-type]
+    assert resolver.calls == 1

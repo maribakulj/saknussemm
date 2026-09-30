@@ -522,4 +522,11 @@ class WordGeometryResolver(Protocol):
 
     name: str
 
+    #: Optional. ``True`` asks this resolver only when the engine's own
+    #: pixel-blind layout could not answer the line (no kept word, or a
+    #: layout it cannot draw); ``False`` or absent asks it first, before
+    #: that layout. A resolver that opens an image or runs a model wants
+    #: ``True``: the page's own boxes settle 95-99 % of lines without it.
+    last_resort: bool = False
+
     def resolve(self, request: LineGeometryRequest) -> tuple[TokenBox, ...]: ...
