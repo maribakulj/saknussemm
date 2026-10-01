@@ -122,10 +122,14 @@ class RoutingPolicy(FrozenPolicy):
     - ``escalate_at_or_above``: a QE score ≥ this routes to ESCALATE.
 
     Between the two (or when a bound is ``None``) the line routes to LLM.
-    A frozen §8.2-style policy so a run that used routing can fingerprint
-    it — though it is NOT in the composite ``config_fingerprint`` until a
-    run actually skips or escalates a line, by the same rule that kept
-    ConfidencePolicy out until write_wc.
+    A frozen §8.2-style policy, and NOT in the composite
+    ``config_fingerprint``: folding it in would move every fingerprint
+    already stamped into delivered files. Yet a ``SKIP`` makes the OCR
+    text the final text, so two runs with different bounds deliver
+    different bytes under the same fingerprint. The report therefore
+    carries the policy BESIDE the fingerprint — ``RunProvenance.active_policies["routing"]``,
+    present whenever a bound is set — and a consumer recomputes
+    ``policy_fingerprint()`` from that dump.
     """
 
     skip_at_or_below: float | None = Field(default=None, ge=0.0, le=1.0)

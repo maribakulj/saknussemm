@@ -82,6 +82,15 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- **`RunProvenance.active_policies` : ce que l'empreinte laisse dehors est
+  écrit à côté d'elle (`G4`).** `config_fingerprint()` couvre cinq
+  politiques ; le routage n'en est pas, et une ligne `SKIP` garde pourtant
+  son texte OCR — deux runs aux bornes différentes livraient des octets
+  différents sous la même empreinte. L'empreinte ne bouge pas (elle est
+  estampillée dans des fichiers livrés) ; le rapport porte désormais
+  `routing`, `review`, `confidence` et `qe_scorer`, chacune par son dump
+  JSON, seulement hors de son état neutre. Clé optionnelle : pas de
+  changement de `report_version`.
 - **`GuardConfig(max_unanchored_words=…)` : refuser une demi-ligne écrite
   de nulle part (`VR-12`).** Le plancher de ressemblance compare la ligne
   entière ; une correction dont la première moitié n'a aucun appui dans la

@@ -166,6 +166,14 @@ _SEAMS: dict[str, tuple[str, str]] = {
         "and comparing the two derivations is the only net it has — the byte "
         "goldens do not see it (every fixture is one page at a time)",
     ),
+    "saknussemm.core.provenance._active_policies": (
+        "value",
+        "a pipeline's policy objects in, the mapping the report carries beside "
+        "config_fingerprint out. Read directly because the G4 test compares "
+        "two pipelines BEFORE any run: the property pinned is that the "
+        "fingerprint does not move while this mapping does, and a run would "
+        "only show one side of it",
+    ),
     "saknussemm.core.reconcile._build_hyphen_pairs": (
         "value",
         "lines in, the bidirectional pair map the VALIDATOR consults. Same "

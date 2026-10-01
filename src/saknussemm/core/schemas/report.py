@@ -6,6 +6,7 @@ the :class:`CorrectionReport` that carries both.
 
 from __future__ import annotations
 
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -336,6 +337,22 @@ class RunProvenance(BaseModel):
     #: the pure core stays lxml-free. A package that is not installed
     #: is simply absent.
     dependencies: dict[str, str] = Field(default_factory=dict)
+    #: The policies that shaped this run and are NOT in
+    #: ``config_fingerprint``: ``routing`` (its two bounds — a ``SKIP``
+    #: makes the OCR text the final text, so two runs with different
+    #: bounds deliver different bytes under the same fingerprint),
+    #: ``review`` (which rules were on — changes statuses, never bytes),
+    #: ``confidence`` (its mode) and ``qe_scorer`` (its declared name).
+    #: Each value is the policy's own JSON dump, so a consumer recomputes
+    #: its ``policy_fingerprint()`` from the report alone. A policy in its
+    #: neutral state is absent: routing with no bound set, review silent,
+    #: confidence ``drop``, no scorer — a run that used none of them has
+    #: an empty mapping. Kept BESIDE the fingerprint rather than folded
+    #: into it: folding would move every fingerprint already stamped into
+    #: delivered files, and a conditional fingerprint could no longer be
+    #: recomputed from the policy objects alone. Additive; no
+    #: ``report_version`` bump.
+    active_policies: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class SidecarEntry(BaseModel):
