@@ -465,9 +465,7 @@ class CorrectionPipeline:
             traces=index.traces,
             ctx=ctx,
             provenance=_build_run_provenance(
-                producer_metadata=self.producer_metadata,
-                escalation_producer=self.escalation_producer,
-                config_fingerprint=self.config_fingerprint(),
+                self,
                 document_manifest=document_manifest,
                 source_digests=source_digests,
                 image_assets=ctx.image_ref_by_page_id,

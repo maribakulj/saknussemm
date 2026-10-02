@@ -614,11 +614,20 @@ du dump JSON trié) exposée pour la provenance (§11).
 
 L'empreinte composite `config_fingerprint()` en couvre **cinq** :
 `chunk_planner`, `guard`, `loss`, `pairing`, `retry`. `ConfidencePolicy` et
-`RoutingPolicy` en sont dehors **tant qu'elles ne peuvent pas changer les
-octets livrés** — les confiances restent report-only jusqu'au déverrouillage
-de `write_wc`, et le routage par défaut envoie chaque ligne au producteur.
-Les faire entrer plus tôt ferait varier l'empreinte estampillée sans que la
-sortie varie, ce qui la rendrait illisible comme preuve.
+`RoutingPolicy` en sont dehors, et le restent. Ce paragraphe disait « tant
+qu'elles ne peuvent pas changer les octets livrés » ; c'était faux pour le
+routage dès qu'une borne est posée : une ligne `SKIP` garde son texte OCR,
+donc deux runs aux bornes différentes livrent des octets différents sous la
+même empreinte (relevé `G4`, 2026-09-01). Les faire entrer dans l'empreinte
+déplacerait toutes celles déjà estampillées dans des fichiers livrés ; les
+y faire entrer sous condition rendrait l'empreinte non recalculable à partir
+des seuls objets de politique. D'où la règle (2026-10-01) : **l'empreinte
+reste ce qu'elle est, et le rapport porte à côté d'elle
+`RunProvenance.active_policies`** — `routing` (ses bornes), `review` (ses
+règles), `confidence` (son mode), `qe_scorer` (son nom), chacune sous forme
+de son propre dump JSON et seulement hors de son état neutre, de sorte qu'un
+consommateur recalcule `policy_fingerprint()` de chacune depuis le rapport
+seul. Les fichiers livrés n'estampillent toujours que l'empreinte.
 
 Note (ratifiée 2026-07-07) : `CorrectionPipeline(pairing_policy=…)` est un
 paramètre de **provenance uniquement** — l'appariement des paires de

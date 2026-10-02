@@ -12,13 +12,17 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import Any, Protocol
 
 from saknussemm.core.protocols import EditProducer, ProducerMetadata
+from saknussemm.core.quality import QEScorer, RoutingPolicy
 from saknussemm.core.schemas import (
+    ConfidencePolicy,
     DocumentManifest,
     ImageAsset,
     PageImage,
     ProducerProvenance,
+    ReviewPolicy,
     RunProvenance,
 )
 
@@ -93,22 +97,64 @@ def digests_of_the_bytes_decided_on(
     return {name: stamped[name] for name in source_files if name in stamped}
 
 
+class _PolicyHolder(Protocol):
+    """What :func:`_build_run_provenance` reads off the pipeline (§11).
+
+    Structural, so ``provenance`` never imports ``pipeline`` (which
+    imports it): the identity envelope, the five fingerprinted policies
+    through ``config_fingerprint()``, and the four that live outside it.
+    """
+
+    producer_metadata: ProducerMetadata
+    escalation_producer: EditProducer | None
+    routing_policy: RoutingPolicy
+    review_policy: ReviewPolicy
+    confidence_policy: ConfidencePolicy
+    qe_scorer: QEScorer | None
+
+    def config_fingerprint(self) -> str: ...
+
+
+def _active_policies(pipeline: _PolicyHolder) -> dict[str, dict[str, Any]]:
+    """The policies outside ``config_fingerprint`` that are not in their
+    neutral state, each as its own JSON dump (``RunProvenance.active_policies``).
+
+    Computed from the policy objects alone, so the report says what the
+    fingerprint cannot: routing bounds decide which lines keep their OCR
+    text, and that is a delivered byte. The scorer is named, not dumped —
+    it is a protocol, and its name is the only identity it declares.
+    """
+    routing, review = pipeline.routing_policy, pipeline.review_policy
+    active: dict[str, dict[str, Any]] = {}
+    if routing.skip_at_or_below is not None or routing.escalate_at_or_above is not None:
+        active["routing"] = routing.model_dump(mode="json")
+    if review.enabled:
+        active["review"] = review.model_dump(mode="json")
+    if pipeline.confidence_policy.mode != "drop":
+        active["confidence"] = pipeline.confidence_policy.model_dump(mode="json")
+    if pipeline.qe_scorer is not None:
+        # ``name`` is in the protocol, but a scorer that never declared
+        # one was accepted until now; the same ``getattr`` courtesy the
+        # producers get, so provenance never refuses what the run accepted
+        active["qe_scorer"] = {"name": getattr(pipeline.qe_scorer, "name", "unknown")}
+    return active
+
+
 def _build_run_provenance(
+    pipeline: _PolicyHolder,
     *,
-    producer_metadata: ProducerMetadata,
-    escalation_producer: EditProducer | None,
-    config_fingerprint: str,
     document_manifest: DocumentManifest,
     source_digests: dict[str, str],
     image_assets: dict[str, PageImage],
 ) -> RunProvenance:
     """The run's §11 provenance record.
 
-    Library + producer identity, policy fingerprint, per-file digests of
-    the INPUT bytes (computed once per run by :func:`_digest_sources` and
-    shared with the edit script's preconditions, so the two agree by
-    construction), per-page image digests, and critical dependency
-    versions.
+    Library + producer identity, policy fingerprint, the active policies
+    the fingerprint leaves out (:func:`_active_policies`), per-file
+    digests of the INPUT bytes (computed once per run by
+    :func:`_digest_sources` and shared with the edit script's
+    preconditions, so the two agree by construction), per-page image
+    digests, and critical dependency versions.
     """
     from saknussemm import __version__ as _lib_version
 
@@ -125,17 +171,22 @@ def _build_run_provenance(
     # primary producer's). None for a single-producer run, so text-only
     # provenance is unchanged.
     escalation_prov: ProducerProvenance | None = None
-    if escalation_producer is not None:
-        emd = getattr(escalation_producer, "metadata", None) or ProducerMetadata()
+    if pipeline.escalation_producer is not None:
+        emd = (
+            getattr(pipeline.escalation_producer, "metadata", None)
+            or ProducerMetadata()
+        )
         escalation_prov = ProducerProvenance(
             name=emd.name,
             version=emd.version,
             implementation=emd.implementation,
             configuration_fingerprint=emd.configuration_fingerprint,
         )
+    producer_metadata = pipeline.producer_metadata
     return RunProvenance(
         lib_version=_lib_version,
-        config_fingerprint=config_fingerprint,
+        config_fingerprint=pipeline.config_fingerprint(),
+        active_policies=_active_policies(pipeline),
         producer=ProducerProvenance(
             name=producer_metadata.name,
             version=producer_metadata.version,

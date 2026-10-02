@@ -515,7 +515,8 @@ class ConfidencePolicy(FrozenPolicy):
     Deliberately NOT part of the §8.2 composite ``config_fingerprint``
     yet: ``report_only`` affects the report, never the corrected XML —
     the policy joins the fingerprinted surface in the same release that
-    unlocks ``write_wc`` (which does affect outputs).
+    unlocks ``write_wc`` (which does affect outputs). Until then a
+    non-``drop`` mode is recorded in ``RunProvenance.active_policies``.
     """
 
     mode: Literal["drop", "report_only", "write_wc"] = "drop"
