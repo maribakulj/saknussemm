@@ -542,8 +542,10 @@ def _grow_into_blank(
     space: float,
     hpos: int,
     right_edge: int,
-) -> None:
+) -> bool:
     """Let a changed run reach its natural width when the page shows room.
+
+    Returns whether it grew.
 
     An OCR engine that misses the ink of a word often boxes only a scrap of
     it: Tesseract read ``du , personne`` for ``du départ, personne`` and
@@ -566,7 +568,7 @@ def _grow_into_blank(
     natural += space * (len(item.targets) - 1)
     have = item.right - item.left
     if have >= _SCRAP_RATIO * natural:
-        return
+        return False
     deficit = natural - have
     left_limit = items[i - 1].right + space if i > 0 else hpos
     right_limit = items[i + 1].left - space if i + 1 < len(items) else right_edge
@@ -574,10 +576,11 @@ def _grow_into_blank(
     room_right = max(0.0, right_limit - item.right)
     room = room_left + room_right
     if room <= 0:
-        return
+        return False
     take = min(deficit, room)
     item.left -= round(take * room_left / room)
     item.right += round(take * room_right / room)
+    return True
 
 
 def _place_free_run(
@@ -612,13 +615,28 @@ def _place_free_run(
     item.right = item.left + round(run_natural * fit)
 
 
+class AnchoredLayout(list[tuple[str, int, int]]):
+    """The anchored layout of a line, and whether part of it is a guess.
+
+    ``guessed`` is true when the page did not know where some run goes and
+    the layout had to suppose: a word the correction inserted with no box
+    behind it, or a run boxed as a scrap and grown into the blank beside
+    it. Everything else -- kept words, splits and merges inside the boxes
+    they consumed -- is read off the page. A resolver declared
+    ``last_resort`` is asked about guessed lines too, not only about lines
+    the layout could not draw at all.
+    """
+
+    guessed: bool = False
+
+
 def anchored_geometry(
     tokens: Sequence[str],
     is_space: Callable[[str], bool],
     anchors: LineAnchors,
     hpos: int,
     width: int,
-) -> list[tuple[str, int, int]] | None:
+) -> AnchoredLayout | None:
     """One ``(token, hpos, width)`` per token, anchored where the line allows.
 
     ``None`` means "no usable layout": nothing to anchor on, a run squeezed
@@ -641,9 +659,10 @@ def anchored_geometry(
 
     _trim_overlaps(items, model)
     line_scale, line_space = _line_calibration(items, words, model)
+    guessed = any(not item.sources for item in items)
     for i, item in enumerate(items):
         if item.sources and not item.anchored:
-            _grow_into_blank(
+            guessed |= _grow_into_blank(
                 items, i, words, model, line_scale, line_space, hpos, right_edge
             )
     for i, item in enumerate(items):
@@ -702,4 +721,6 @@ def anchored_geometry(
 
     if any(triple is None for triple in out):
         return None
-    return [triple for triple in out if triple is not None]
+    layout = AnchoredLayout(triple for triple in out if triple is not None)
+    layout.guessed = guessed
+    return layout
