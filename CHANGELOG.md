@@ -82,15 +82,18 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
-- **`RunProvenance.active_policies` : ce que l'empreinte laisse dehors est
-  écrit à côté d'elle (`G4`).** `config_fingerprint()` couvre cinq
-  politiques ; le routage n'en est pas, et une ligne `SKIP` garde pourtant
-  son texte OCR — deux runs aux bornes différentes livraient des octets
-  différents sous la même empreinte. L'empreinte ne bouge pas (elle est
-  estampillée dans des fichiers livrés) ; le rapport porte désormais
-  `routing`, `review`, `confidence` et `qe_scorer`, chacune par son dump
-  JSON, seulement hors de son état neutre. Clé optionnelle : pas de
-  changement de `report_version`.
+- **Un résolveur en dernier recours est aussi interrogé quand la page a dû
+  supposer.** `last_resort = True` ne le sollicitait que si la géométrie
+  ancrée ne rendait rien. Or elle rend parfois une supposition : un mot
+  inséré sans boîte derrière lui, un passage boxé comme un fragment et
+  étendu dans le blanc. `anchored_geometry` rend désormais un
+  `AnchoredLayout` qui le dit (`guessed`), et `_resolve_geometry` interroge
+  alors le résolveur ; s'il décline, la supposition est gardée — elle vaut
+  mieux que le prorata de toute la ligne. Mesuré sur le test réel NewsEye
+  (`hans`, H24) avec un alignement CTC : 153 appels au lieu de 482 quand il
+  est interrogé en premier, pour 91,7 % de frontières justes sur le chemin
+  lent contre 92,7 % (89,5 % sans résolveur).
+
 - **`GuardConfig(max_unanchored_words=…)` : refuser une demi-ligne écrite
   de nulle part (`VR-12`).** Le plancher de ressemblance compare la ligne
   entière ; une correction dont la première moitié n'a aucun appui dans la

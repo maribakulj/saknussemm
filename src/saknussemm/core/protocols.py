@@ -523,9 +523,12 @@ class WordGeometryResolver(Protocol):
     name: str
 
     #: Optional. ``True`` asks this resolver only when the engine's own
-    #: pixel-blind layout could not answer the line (no kept word, or a
-    #: layout it cannot draw); ``False`` or absent asks it first, before
-    #: that layout. A resolver that opens an image or runs a model wants
+    #: pixel-blind layout could not answer the line from the page's boxes
+    #: (no kept word, a layout it cannot draw, or one it had to suppose:
+    #: an inserted word, a run boxed as a scrap); ``False`` or absent asks
+    #: it first, before that layout. A last-resort resolver that is unsure
+    #: should RAISE rather than fall back on a layout of its own: the
+    #: engine then keeps what it had. A resolver that opens an image or runs a model wants
     #: ``True``: the page's own boxes settle 95-99 % of lines without it.
     last_resort: bool = False
 

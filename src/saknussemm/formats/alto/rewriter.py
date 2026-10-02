@@ -31,6 +31,7 @@ from saknussemm.formats.alto._ns import (
 )
 from saknussemm.formats._xml import read_source_tree_classified
 from saknussemm.formats.alto._geometry import (
+    AnchoredLayout,
     LineAnchors,
     SourceBox,
     DocWidths,
@@ -260,8 +261,11 @@ def _resolve_geometry(
     **Where the resolver sits is the resolver's choice.** By default it is
     asked first, as it was before the anchored tier existed. A resolver
     that declares ``last_resort = True`` is asked only when the anchored
-    layout could not answer: a line with no kept word (every word changed),
-    or one it cannot draw. That is the placement for a resolver that costs
+    layout could not answer from the page's boxes: a line with no kept word
+    (every word changed), one it cannot draw, or one it could only draw by
+    supposing -- an inserted word with no box behind it, a run boxed as a
+    scrap (``AnchoredLayout.guessed``). If the resolver declines there, the
+    supposed layout is kept: it is still better than the proportional one. That is the placement for a resolver that costs
     something -- a CTC model, an image to open -- and that the page's own
     boxes make unnecessary on 95-99 % of lines (hans, H22). It is read as
     an attribute rather than passed down, so that neither the seam nor
@@ -282,23 +286,30 @@ def _resolve_geometry(
         if geo is not None:
             return geo
 
+    anchored: AnchoredLayout | None = None
     if anchors is not None:
-        geo = anchored_geometry(
+        layout = anchored_geometry(
             tokens, _is_space_token, anchors, request.hpos, request.width
         )
-        if geo is not None and _geometry_is_usable(
-            tuple(TokenBox(text=t, hpos=h, width=w) for t, h, w in geo),
+        if layout is not None and _geometry_is_usable(
+            tuple(TokenBox(text=t, hpos=h, width=w) for t, h, w in layout),
             tokens,
             request.hpos,
             request.width,
         ):
-            return geo
+            anchored = layout
+    if anchored is not None and not (last_resort and anchored.guessed):
+        return anchored
 
+    # The page could not answer, or answered by supposing (an inserted
+    # word, a run grown out of a scrap): that is what a last resort is for.
     if resolver is not None and last_resort:
         geo = _ask_resolver(resolver, request, tokens)
         if geo is not None:
             return geo
 
+    if anchored is not None:
+        return anchored
     return _compute_geometry(request.hpos, request.width, tokens)
 
 
