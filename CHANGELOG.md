@@ -54,6 +54,37 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ## [Unreleased]
 
+### Changed
+
+- **PAGE, chemin lent : les `Word` ne sont plus tous supprimés (spec §6.2
+  P4).** Une correction qui changeait le nombre de mots d'une ligne lui
+  coûtait tous ses `Word` : le texte vivait au niveau ligne, la granularité
+  au mot était perdue et comptée. Désormais les `Word` que la correction
+  n'a pas touchés sont **gardés**, `Coords` intactes (P1 tient pour eux à
+  l'octet), et le passage changé reçoit des `Word` dont le polygone est
+  **découpé dans un polygone de la source** : un mot scindé est son propre
+  polygone coupé par une verticale ; une fusion ou un mot inséré prennent
+  le polygone de la ligne entre deux abscisses. Une ligne inclinée donne
+  des mots inclinés — l'objection qui avait fondé la suppression visait des
+  polygones inventés.
+
+  Les abscisses viennent de la mise en page sans pixels d'ALTO
+  (`formats/alto/_geometry`), avec des largeurs de lettres apprises sur les
+  `Word` du document. Mesuré de bout en bout sur le vrai `rewrite_page_file`
+  (`hans`, H25 : deux `Word` collés dans le fichier, la correction les
+  sépare, les polygones sont relus) : **98,8 %** des frontières dans le vrai
+  blanc sur la vérité terrain NewsEye, **96,2 %** sur OCR17+ — là où il n'y
+  avait plus aucun mot.
+
+  Quand rien ne peut être gardé (aucun mot intact, un `Coords` sans
+  `@points`, des mots qui ne vont pas de gauche à droite), les `Word` sont
+  supprimés comme avant. `words_dropped` compte toujours chaque `Word`
+  source retiré ; `PageRewriterMetrics.words_rebuilt` compte les `Word`
+  créés et n'est pas une perte. **Un consommateur qui lisait « chemin lent
+  = plus de `Word` » doit relire** : neuf empreintes d'octets PAGE bougent,
+  classées par TextLine (des `Word` de retour sur les lignes qui n'en
+  avaient plus, le texte de ligne identique partout).
+
 ### Fixed
 
 - **Chemin lent : deux défauts de la source ne se propagent plus dans la

@@ -136,7 +136,9 @@ def test_fraktur_double_oblique_detected_and_preserved(tmp_path: Path):
 def test_metrics_as_losses_and_report_field(tmp_path: Path):
     p = _write(tmp_path, _CUSTOM_FIXTURE)
     doc = build_document_manifest([(p, p.name)])
-    doc.pages[0].lines[0].corrected_text = "hello brave world"  # 3 != 2 -> slow
+    # 1 != 2 -> slow, and a merge of the only two words: nothing is kept,
+    # so both Words go (a correction that keeps one is counted elsewhere)
+    doc.pages[0].lines[0].corrected_text = "helowrld"
 
     _res = rewrite_page_file(p, doc.pages, "prov", "mdl")
     metrics = _res.metrics
@@ -196,7 +198,8 @@ class _Null:
 
 class _WordSplitter:
     """Splits one word of ln1 — same text, one more word: the PAGE slow
-    path rebuilds the line and drops its Word elements."""
+    path keeps ``helo`` and replaces the split ``wrld`` by two Words cut
+    out of its polygon, so exactly one source Word is dropped."""
 
     wants_geometry = False
     wants_image = False
@@ -228,5 +231,5 @@ async def test_run_report_carries_the_rewrite_losses(tmp_path: Path) -> None:
     result = await pipeline.run(document_manifest=doc, source_files={p.name: p})
     losses = result.report.format_losses
     assert losses is not None, "the run must surface the rewrite losses"
-    assert losses["words_dropped"] == 2
+    assert losses["words_dropped"] == 1
     assert losses["custom_offset_stripped"] >= 1

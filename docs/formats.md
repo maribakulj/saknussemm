@@ -54,9 +54,14 @@ P1–P7 (spec §6.2):
   the canonical `TextEquiv` is updated (Unicode + `PlainText`), its stale
   `@conf` dropped, alternative `TextEquiv` removed.
 - **P4 — words.** Count unchanged → each `Word` updated in place, its
-  `Coords` kept. Count changed → the `Word` children are removed and the
-  text lives at line level; the lost granularity is **counted**, not
-  hidden (`words_dropped`).
+  `Coords` kept. Count changed → the `Word`s the correction left alone are
+  kept as they are, and the run it changed gets new `Word`s whose polygon
+  is **cut out of a polygon of the source** (a split word is its own
+  polygon cut by a vertical line; a merge or an inserted word takes the
+  line's polygon between two abscissae). When no word can be kept — or a
+  polygon cannot be read, or the words do not run left to right — the
+  `Word` children are removed and the text lives at line level. Every
+  source `Word` removed is **counted**, not hidden (`words_dropped`).
 - **P5 — heuristic hyphenation.** Repertoire `-` `¬` (U+00AC) `⸗`
   (U+2E17) `­` (U+00AD), alpha-before-hyphen required; always
   `hyphen_source_explicit=False` (conservative reconciliation, no

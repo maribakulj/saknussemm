@@ -83,13 +83,13 @@ _GOLDEN = {
         "afcf40824bc272d78b4b41fee75d76874ee92ee4fa63316581983b049f869a9a"
     ),
     ("Descartes", "scripted"): (
-        "44a315b2ed7f1573b4c96661ca7629a739bdea80840e6336f39015e0037f1e9f"
+        "4473d34a3943741c255f01ff0d479c671b53dec28471292fe182dfbab7871a30"
     ),
     ("LaFayette", "identity"): (
         "4b38b1e1ecdcc1e29ec68056115e8a1ab234414a2da3c8d05efe08bd1d7e7c7d"
     ),
     ("LaFayette", "scripted"): (
-        "279b32b0abeaedd28bd7110a4d7484d37ece2e73d300ac13055172d91ab80fc8"
+        "8d167c3d737569ae055f76f57b8dbd2f2df0a68696011494a7a7782faad505f6"
     ),
 }
 
@@ -191,11 +191,15 @@ def test_every_dropped_word_is_counted(fixture: str) -> None:
     """
     source, result = _rewrite(fixture, "scripted")
     before, after = _census(source), _census(result.xml_bytes)
-    lost = before["Word"] - after["Word"]
-    per_line = _declared(result)["words_dropped"]
+    # Since 2026-09-30 the slow path keeps the Words a correction left
+    # alone and draws new ones for the run it changed: the census moves by
+    # what was dropped LESS what was rebuilt, and the two are read apart.
+    rebuilt = result.metrics.words_rebuilt
+    lost = before["Word"] - after["Word"] + rebuilt
+    per_line = _declared(result).get("words_dropped", 0)
     run_level = result.metrics.as_losses().get("words_dropped", 0)
 
-    assert lost > 0, (
+    assert lost + rebuilt > 0, (
         f"{fixture}: the scripted scenario dropped no Word element, so this "
         "case checks nothing. Either the scenario stopped correcting anything "
         "or the rewrite stopped rebuilding — both change what the digests "
@@ -210,10 +214,14 @@ def test_every_dropped_word_is_counted(fixture: str) -> None:
         "attributing to the wrong line."
     )
     for child in _WORD_CHILDREN:
-        assert before[child] - after[child] == lost, (
-            f"{fixture}: {lost} <Word> element(s) went but {child} moved by "
-            f"{before[child] - after[child]}. A Word is dropped whole, with "
-            "its four children; a partial drop means the rewrite is editing "
+        # a rebuilt Word carries Coords, TextEquiv and Unicode and nothing
+        # else: the TextStyle of the Word it replaces is not carried over
+        gained = 0 if child == "TextStyle" else rebuilt
+        assert before[child] - after[child] == lost - gained, (
+            f"{fixture}: {lost} <Word> element(s) went and {rebuilt} were "
+            f"drawn, but {child} moved by {before[child] - after[child]}. A "
+            "Word is dropped whole, with its four children, and a rebuilt one "
+            "arrives with three; anything else means the rewrite is editing "
             "inside a subtree it decided to remove."
         )
 

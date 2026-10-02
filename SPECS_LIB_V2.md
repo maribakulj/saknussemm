@@ -433,8 +433,11 @@ est nouveau. Règles normatives :
 
 - **P1 — Géométrie = polygones.** PAGE encode `Coords@points` (polygones),
   pas des bbox. Le manifest conserve le polygone source verbatim et expose
-  la bbox englobante calculée (besoin du planner). **Aucune géométrie n'est
-  jamais réécrite** — pas d'équivalent du slow path géométrique d'ALTO.
+  la bbox englobante calculée (besoin du planner). **Aucune géométrie
+  existante n'est jamais réécrite** : un élément gardé garde ses `Coords` à
+  l'octet. Depuis le 2026-09-30 (P4), le slow path peut *ajouter* des `Word`
+  dont le polygone est **découpé dans un polygone de la source** — jamais
+  dessiné hors de ce que la source enfermait déjà.
 - **P2 — Texte canonique d'une ligne** = `Unicode` du TextEquiv canonique
   (P3) de la `TextLine`, NFC + strip. S'il est absent, concaténation des
   `Word/TextEquiv` séparés par des espaces. En cas de désaccord entre le
@@ -448,10 +451,23 @@ est nouveau. Règles normatives :
   compté dans le `CorrectionReport`.
 - **P4 — Éléments `Word`.** Fast path (compte de mots inchangé) : mise à
   jour des `TextEquiv` de chaque `Word` en place, `Coords` conservées,
-  `@conf` supprimé. Slow path (compte changé) : les `Word` de la ligne sont
-  **supprimés**, le texte vit au niveau ligne — fabriquer des polygones de
-  mots dans une ligne inclinée serait plus mensonger que l'approximation
-  bbox d'ALTO ; perte de granularité **documentée et comptée**.
+  `@conf` supprimé. Slow path (compte changé) : les `Word` que la correction
+  n'a pas touchés sont **gardés** (élément et `Coords` intacts, texte mis à
+  jour comme au fast path) ; le passage changé reçoit des `Word` neufs dont
+  le polygone est *découpé* — un mot scindé est son propre polygone coupé
+  par une verticale, une fusion ou un mot inséré prennent le polygone de la
+  ligne entre deux abscisses. Une ligne inclinée donne donc des mots
+  inclinés : l'objection d'origine (« fabriquer des polygones de mots dans
+  une ligne inclinée serait plus mensonger que l'approximation bbox
+  d'ALTO ») visait des polygones inventés, ceux-ci ne le sont pas. Les
+  abscisses viennent de la même mise en page sans pixels qu'ALTO
+  (`formats/alto/_geometry`), mesurée à 97–99 % sur PAGE (`hans`, H22, H25).
+  **Quand rien ne peut être gardé** — aucun mot intact, un polygone
+  illisible (schéma 2010), des mots qui ne vont pas de gauche à droite —
+  les `Word` de la ligne sont **supprimés** comme avant, le texte vit au
+  niveau ligne. Chaque `Word` source retiré est compté (`words_dropped`) ;
+  les `Word` créés sont comptés à part (`words_rebuilt`) et ne sont pas
+  une perte.
 - **P5 — Césure : heuristique, toujours.** PAGE n'a ni `<HYP>` ni
   `SUBS_TYPE`/`SUBS_CONTENT`. Détection de rôle sur caractères terminaux
   configurables : `-`, `¬` (U+00AC, convention Transkribus), `⸗` (U+2E17,
