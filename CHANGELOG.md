@@ -320,6 +320,61 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Changed
 
+- **Chemin lent : la géométrie garde les boîtes que la correction n'a pas
+  touchées, et redessine le reste avec les largeurs de lettres de la page**
+  (`formats/alto/_geometry.py`, fusionné le 2026-09-30 sans entrée ici ;
+  les deux entrées « Fixed » et « Added » ci-dessus le corrigent et le
+  prolongent). Jusque-là, dès qu'une correction changeait le nombre de mots
+  d'une ligne, toutes les boîtes `String` de la ligne étaient jetées et la
+  largeur de la ligne repartagée au prorata des caractères (un glyphe = 1,
+  une espace = 0,6) : 79-84 % de frontières de mots dans le vrai blanc
+  (`hans`, H21-H22), avec une queue à quatre caractères. `_resolve_geometry`
+  a maintenant trois étages, chacun validé par `_geometry_is_usable` et
+  retombant sur le suivant : le résolveur externe, la géométrie ancrée, le
+  prorata — ce dernier produisant exactement les octets d'avant.
+  - *Ancrage.* Un mot corrigé apparié à une `String` de longueur compatible
+    garde sa boîte au pixel, sauf si une insertion ou une suppression
+    voisine explique l'écart (`_is_anchor`) ; sans cette clause, une
+    scission était prise pour le même mot et l'ensemble tombait à 65 %.
+    Seuls les passages changés — un mot scindé, deux mots fusionnés, un mot
+    inséré — sont redessinés, dans les boîtes qu'ils ont consommées.
+  - *Largeurs apprises.* Chaque `String` de la page est une équation
+    (largeur du mot = somme des largeurs de ses lettres, plus une constante
+    par mot pour les producteurs qui boxent le blanc qui suit) ; moindres
+    carrés en Python pur, une inconnue par lettre, l'espace au blanc médian
+    entre `String` consécutives. Sous vingt mots, le prorata dans les pixels
+    de la page. Un mot inséré est dessiné au corps de sa ligne (échelle et
+    espace relus sur les mots gardés) et, sans blanc où vivre, emprunte ses
+    pixels au voisin gardé plutôt que de faire retomber la ligne au prorata.
+  - *Dernier recours.* Un résolveur qui déclare `last_resort = True` n'est
+    interrogé que là où la géométrie ancrée ne répond pas — la place d'un
+    résolveur qui coûte (un modèle CTC, une image à ouvrir) et que les
+    boîtes de la page rendent inutile sur 95-99 % des lignes.
+
+  Mesuré sur 25 corpus (`hans`, H22) : bibliothèques (BnF, Gallica, BnL,
+  NewsEye, OCR17+) 96,8-99,8 % au banc et 95-99 % de bout en bout sur le
+  vrai `rewrite_alto_file` ; livres Internet Archive (ABBYY via DjVu) 63-98 %,
+  boîtes incohérentes avec le texte, hors domaine. Dix empreintes d'octets
+  bougent, classées TextLine par TextLine : géométrie seule des lignes du
+  chemin lent (`tests/test_byte_parity_all_fixtures.py`).
+
+  Trois défauts trouvés à la relecture avant fusion, chacun avec son test :
+  une boîte `String` mal formée (`HPOS="abc"`, `"inf"`, `"1e999"`) n'importe
+  où dans le document faisait échouer toute la réécriture, que `main`
+  menait à bien — elle est ignorée (`box_int`) ; le modèle était ajusté
+  après le vidage de la première ligne reconstruite, qui manquait donc à
+  l'ajustement (sur un fichier d'une ligne, un mot inséré sortait à 10 px) —
+  `DocWidths` l'ajuste une fois par réécriture, avant, et remplace un cache
+  global qui n'était pas sûr entre threads ; `sum()` de flottants étant
+  compensé depuis CPython 3.12, 15 lignes sur 20 000 différaient d'un pixel
+  entre 3.11 et 3.12 — tous les totaux passent par `fsum`.
+
+  Restent connus et non corrigés : un signe de ponctuation inséré seul dont
+  la largeur naturelle arrondit à zéro remplit tout le blanc (page à très
+  basse résolution) ; l'ajustement est cubique en nombre de caractères
+  distincts (0,5 s à 300, 4,5 s à 600 : sans effet sur du latin, lent sur
+  une page CJK).
+
 - **`GuardConfig.vision()` tient la marge de voisinage contre toute la page**
   (`attachment_scope="page"`), et garde son plancher à 0,15. Les deux
   réglages sont une seule décision : le plancher bas seul laissait passer 64
