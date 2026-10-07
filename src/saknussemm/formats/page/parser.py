@@ -40,14 +40,19 @@ from saknussemm.core.schemas import (
     PageManifest,
     PairingPolicy,
 )
-from saknussemm.formats._xml import classified_parse_errors
+from saknussemm.errors import ParseError
+from saknussemm.formats._xml import (
+    classified_parse_errors,
+    mislabelled_utf8,
+    sniff_format,
+)
 from saknussemm.formats.page._ns import (
     _detect_namespace,
     _tag,
     read_source_tree,
     polygon_to_bbox,
 )
-from saknussemm.formats.page._text import canonical_line_text
+from saknussemm.formats.page._text import canonical_line_text, word_text
 
 
 def _coords_of(el: etree._Element, ns: str) -> Coords:
@@ -191,8 +196,10 @@ def _parse_page_file(
     page_index_offset: int,
     global_line_offset: int,
     pairing_policy: PairingPolicy,
+    *,
+    source_bytes: bytes | None = None,
 ) -> tuple[list[PageManifest], etree._Element]:
-    tree = read_source_tree(xml_path)
+    tree = read_source_tree(xml_path, source_bytes=source_bytes)
     root = tree.getroot()
     ns = _detect_namespace(root)
 
@@ -220,11 +227,8 @@ def _parse_page_file(
                 line_id = tl.get("id", f"TL_{block_id}_{line_order_in_block}")
                 coords = _coords_of(tl, ns)
                 ocr_text = canonical_line_text(tl, ns)
-                # ADR-012 — record the word granularity the line carries:
-                # the rewriter drops Word geometry when a correction
-                # changes the word count (6.2 P4 slow path), and the
-                # LossPolicy strict check needs this BEFORE projection.
-                n_words = len(tl.findall(_tag("Word", ns)))
+                # Strict checks actual Words, which may disagree with TextEquiv.
+                source_words = [word_text(w, ns) for w in tl.findall(_tag("Word", ns))]
 
                 # preserve the source engine's
                 # line confidence (first line-level TextEquiv/@conf).
@@ -246,9 +250,10 @@ def _parse_page_file(
                     line_order_in_block=line_order_in_block,
                     coords=coords,
                     ocr_text=ocr_text,
-                    word_count=n_words if n_words else None,
+                    word_count=len(source_words) if source_words else None,
                     ocr_confidence=ocr_confidence,
                 )
+                lm._source_word_texts = source_words or None
                 lines.append(lm)
                 line_ids.append(line_id)
                 line_order_in_block += 1
@@ -323,15 +328,29 @@ def build_document_manifest(
 ) -> DocumentManifest:
     """Build a DocumentManifest from PAGE files (mirrors the ALTO builder)."""
     source_files: list[str] = []
+    source_digests: dict[str, str] = {}
+    source_encodings: dict[str, str] = {}
     page_offset = 0
     line_offset = 0
     parsed: list[tuple[str, list[PageManifest]]] = []
 
     for xml_path, source_name in files:
         source_files.append(source_name)
-        pages, _ = parse_page_file(
-            xml_path, source_name, page_offset, line_offset, pairing_policy
-        )
+        with classified_parse_errors(source_name):
+            raw = xml_path.read_bytes()
+            if sniff_format(xml_path, source_bytes=raw) != "page":
+                raise ParseError(f"{source_name!r}: expected PAGE source bytes")
+            pages, _ = _parse_page_file(
+                xml_path,
+                source_name,
+                page_offset,
+                line_offset,
+                pairing_policy,
+                source_bytes=raw,
+            )
+        source_digests[source_name] = source_digest(raw)
+        if declared_encoding := mislabelled_utf8(raw):
+            source_encodings[source_name] = declared_encoding
         parsed.append((source_name, pages))
         page_offset += len(pages)
         for p in pages:
@@ -344,9 +363,8 @@ def build_document_manifest(
 
     return DocumentManifest(
         source_files=source_files,
-        # Stamped by the parser that read these bytes — see
-        # `DocumentManifest.source_digests`.
-        source_digests={name: source_digest(path.read_bytes()) for path, name in files},
+        source_digests=source_digests,
+        source_encodings=source_encodings,
         pages=all_pages,
         source_format="page",
     )

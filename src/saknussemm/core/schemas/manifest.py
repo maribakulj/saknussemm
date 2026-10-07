@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, computed_field
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +195,10 @@ class LineManifest(BaseModel):
     #: a correction whose token count diverges from this cannot project
     #: without dropping the word geometry.
     word_count: int | None = None
+    # Parse-time evidence for the PAGE loss gate. The canonical line reading
+    # may disagree with its Word readings, so its split is not a substitute.
+    # Internal only: not part of the manifest's serialised public schema.
+    _source_word_texts: list[str] | None = PrivateAttr(default=None)
     #: the SOURCE engine's own confidence in this
     #: line, in [0, 1]: mean of the ALTO ``String/@WC`` values, or the
     #: PAGE line ``TextEquiv/@conf``. ``None`` when the source carries
@@ -292,10 +296,9 @@ class DocumentManifest(BaseModel):
     source_encodings: dict[str, str] = Field(default_factory=dict)
 
     #: ``{source_file: "sha256:<hex>"}`` of the bytes each page was parsed
-    #: FROM, stamped by the parser that read them. The engine reopens these
-    #: paths at render — a second read of a file it decided on minutes
-    #: earlier — and until 2026-08-17 nothing checked that the second read
-    #: found the first document.
+    #: FROM, stamped from that same read. Preflight verifies a captured copy
+    #: against these digests; the native adapters render the copy without
+    #: reopening the paths after producer calls.
     #:
     #: Two measured consequences. A ``source_files`` mapping that names the
     #: wrong path for a name delivered one file's decided text inside

@@ -8,13 +8,15 @@ polygons are never rewritten (P1). A modified line is handled as:
     ``@conf``, and delete the alternative line-level ``TextEquiv`` (they
     described the old reading). Create the canonical one if the line only
     carried word-level text.
-  - **P4** — word elements. When the corrected word count matches the
-    number of ``Word`` children, update each ``Word``'s canonical
+  - **P4** — word elements. When word count and boundaries still match
+    the source ``Word`` children, update each ``Word``'s canonical
     ``TextEquiv`` in place, keep its ``Coords``, drop its ``@conf`` (fast
-    path). When the count changed, the ``Word`` children are removed and
+    path), removing Glyphs of changed words. When count or boundaries
+    changed, the ``Word`` children are removed and
     the text lives at line level — fabricating word polygons on a skewed
     line would be more dishonest than ALTO's bbox approximation; the loss
-    of word granularity is counted (slow path).
+    of word granularity is counted (slow path). Ancestor TextRegion
+    readings are invalidated whenever a descendant line changes.
   - **P5** — the original hyphen character is preserved verbatim: a
     producer may not normalise ``¬`` → ``-`` (E5 extended).
   - **P7** — ``make_safe_parser`` throughout; provenance recorded as a
@@ -29,6 +31,7 @@ from pathlib import Path
 from lxml import etree
 
 from saknussemm.core._norm import nfc
+from saknussemm.core.alignment import word_boundary_moved
 from saknussemm.core.identity import ensure_unique_identities
 from saknussemm.core.losses import COUNTS_INVALIDATION, INVALIDATION_COUNTER
 from saknussemm.core.pairing import (
@@ -76,6 +79,8 @@ class PageRewriterMetrics:
 
     # PAGE-specific provenance of what was dropped / detected.
     words_dropped: int = 0
+    glyph_elements_removed: int = 0
+    region_textequiv_dropped: int = 0
     #: Lines that lost their OCR confidence — @conf removed because the
     #: correction made it false. Counted per LINE and named for the shared
     #: key both formats emit; it was ``conf_dropped`` and counted per
@@ -106,6 +111,8 @@ class PageRewriterMetrics:
         attribution (ADR-012)."""
         return {
             "words_dropped": self.words_dropped,
+            "glyph_elements_removed": self.glyph_elements_removed,
+            "region_textequiv_dropped": self.region_textequiv_dropped,
             INVALIDATION_COUNTER: self.confidence_invalidated,
             "alt_textequiv_dropped": self.alt_textequiv_dropped,
             "custom_offset_stripped": self.custom_offset_stripped,
@@ -180,14 +187,13 @@ def _set_textequiv_text(te: etree._Element, text: str, ns: str) -> None:
         plain.text = text
 
 
-def _insertion_index(tl: etree._Element, ns: str) -> int:
-    """Where to insert a new line-level TextEquiv: before a line ``TextStyle``
-    if one exists, else at the end. Keeps the PAGE child sequence valid."""
-    style_tag = _tag("TextStyle", ns)
-    for i, child in enumerate(tl):
-        if child.tag == style_tag:
+def _insertion_index(el: etree._Element, ns: str) -> int:
+    """A Word or TextLine reading precedes style and trailing metadata."""
+    following = {_tag(name, ns) for name in ("TextStyle", "UserDefined", "Labels")}
+    for i, child in enumerate(el):
+        if child.tag in following:
             return i
-    return len(tl)
+    return len(el)
 
 
 def _update_line_textequiv(
@@ -226,10 +232,13 @@ def _update_words_fast(
     """P4 fast path: word count unchanged — update each Word's canonical
     TextEquiv in place, keep Coords, drop @conf, remove word alternatives."""
     for w_el, token in zip(word_els, words):
+        if word_text(w_el, ns) != token:
+            _remove_glyphs(w_el, ns, metrics)
         equivs = _direct(w_el, "TextEquiv", ns)
         canonical = canonical_textequiv(w_el, ns)
         if canonical is None:
-            canonical = etree.SubElement(w_el, _tag("TextEquiv", ns))
+            canonical = etree.Element(_tag("TextEquiv", ns))
+            w_el.insert(_insertion_index(w_el, ns), canonical)
         _set_textequiv_text(canonical, token, ns)
         if _drop_conf(canonical):
             metrics._conf_occurrences += 1
@@ -239,16 +248,63 @@ def _update_words_fast(
                 metrics.alt_textequiv_dropped += 1
 
 
+def _remove_glyphs(word: etree._Element, ns: str, metrics: PageRewriterMetrics) -> None:
+    """Changed text no longer supports the source character segmentation."""
+    for glyph in _direct(word, "Glyph", ns):
+        word.remove(glyph)
+        metrics.glyph_elements_removed += 1
+
+
 def _remove_words(
     tl: etree._Element,
     word_els: list[etree._Element],
     metrics: PageRewriterMetrics,
 ) -> None:
-    """P4 slow path: word count changed — drop Word children (text lives at
+    """P4 slow path: word boundaries changed — drop Word children (text lives at
     line level). Word polygons on a skewed line would be dishonest."""
+    ns = _detect_namespace(tl)
     for w_el in word_els:
+        metrics.glyph_elements_removed += len(w_el.findall(_tag("Glyph", ns)))
         tl.remove(w_el)
         metrics.words_dropped += 1
+
+
+def _rewrite_words(
+    tl: etree._Element,
+    word_els: list[etree._Element],
+    words: list[str],
+    ns: str,
+    metrics: PageRewriterMetrics,
+) -> str:
+    """Preserve polygons only while the words still occupy the same slots."""
+    originals = [word_text(word, ns) for word in word_els]
+    if word_els and (
+        len(words) != len(word_els) or word_boundary_moved(originals, words)
+    ):
+        _remove_words(tl, word_els, metrics)
+        return "slow_path"
+    if word_els:
+        _update_words_fast(tl, word_els, words, ns, metrics)
+        for word in word_els:
+            _strip_custom_offsets(word, metrics)
+    return "fast_path"
+
+
+def _invalidate_region_text(
+    tl: etree._Element, ns: str, metrics: PageRewriterMetrics
+) -> None:
+    """Invalidate aggregate readings and offsets above a changed line.
+
+    A region can hold reordered or nested lines, so regenerating its text
+    by concatenation would invent an order. Each removed reading is counted
+    on the first changed descendant that invalidates it, once per element.
+    Unchanged regions retain all their readings.
+    """
+    for region in tl.iterancestors(_tag("TextRegion", ns)):
+        _strip_custom_offsets(region, metrics)
+        for equiv in _direct(region, "TextEquiv", ns):
+            region.remove(equiv)
+            metrics.region_textequiv_dropped += 1
 
 
 def _strip_custom_offsets(el: etree._Element, metrics: PageRewriterMetrics) -> None:
@@ -342,6 +398,7 @@ def rewrite_page_file(
     *,
     lib_version: str | None = None,
     config_fingerprint: str | None = None,
+    _source_bytes: bytes | None = None,
 ) -> RewriteResult:
     """Rewrite a PAGE XML file with corrected text from ``page_manifests``.
 
@@ -349,7 +406,7 @@ def rewrite_page_file(
     of ``untouched`` / ``fast_path`` / ``slow_path`` (never
     ``subs_only``).
     """
-    tree = read_source_tree_classified(xml_path)
+    tree = read_source_tree_classified(xml_path, source_bytes=_source_bytes)
     root = tree.getroot()
     ns = _detect_namespace(root)
     metrics = PageRewriterMetrics()
@@ -411,19 +468,9 @@ def rewrite_page_file(
         if trailing_hyphen_char(source_text, HYPHEN_CHARS) is not None:
             metrics.hyphen_preserved += 1
 
-        words = corrected.split()
-
         # --- P4 word handling ---
-        if word_els and len(words) != len(word_els):
-            _remove_words(tl, word_els, metrics)
-            path = "slow_path"
-        else:
-            if word_els:
-                _update_words_fast(tl, word_els, words, ns, metrics)
-                # P6 — surviving Words: strip their stale offset groups.
-                for w_el in word_els:
-                    _strip_custom_offsets(w_el, metrics)
-            path = "fast_path"
+        path = _rewrite_words(tl, word_els, corrected.split(), ns, metrics)
+        _invalidate_region_text(tl, ns, metrics)
 
         # --- P3 line-level update (both paths) ---
         _update_line_textequiv(tl, corrected, ns, metrics)

@@ -10,7 +10,7 @@ from lxml import etree
 
 from saknussemm.core._norm import clean_content, nfc
 from saknussemm.core._parse import parse_int_tolerant
-from saknussemm.core.alignment import TokenAlignment, align_tokens
+from saknussemm.core.alignment import TokenAlignment, align_tokens, word_boundary_moved
 from saknussemm.core.identity import ensure_unique_identities
 from saknussemm.core.losses import (
     COUNTS_INVALIDATION,
@@ -685,18 +685,31 @@ def _confidence_attr_count(el: etree._Element, ns: str) -> int:
     return count
 
 
-def _confidence_loss(before: int, el: etree._Element, ns: str) -> dict[str, int]:
-    """One line's invalidation loss — ``1`` if it lost any, not how many.
+def _annotation_counts(el: etree._Element, ns: str) -> tuple[int, int]:
+    """Source confidence attributes and character elements of one line."""
+    glyphs = sum(
+        len(string_el.findall(_tag("Glyph", ns)))
+        for string_el in _get_string_children(el, ns)
+    )
+    return _confidence_attr_count(el, ns), glyphs
 
-    The unit is the decision (R4, :data:`INVALIDATION_UNIT`): an archive
-    acts on "this line's OCR confidence is gone", and how many Strings that
-    line happened to hold is not a fact about the correction.
+
+def _annotation_losses(
+    before: tuple[int, int], el: etree._Element, ns: str
+) -> dict[str, int]:
+    """Measure actual removals: confidence per line, glyphs per element.
+
+    Fast-path edits invalidate only changed Strings' annotations. A rebuild
+    removes all old Strings and their children, so the same differential
+    also accounts for glyphs lost on the slow path without counting twice.
     """
-    if not COUNTS_INVALIDATION or before == 0:
-        return {}
-    if _confidence_attr_count(el, ns) >= before:
-        return {}
-    return {INVALIDATION_COUNTER: 1}
+    confidence, glyphs = _annotation_counts(el, ns)
+    losses = {}
+    if COUNTS_INVALIDATION and confidence < before[0]:
+        losses[INVALIDATION_COUNTER] = 1
+    if glyphs < before[1]:
+        losses["glyph_elements_removed"] = before[1] - glyphs
+    return losses
 
 
 def _add_alignment_scoped_losses(
@@ -746,48 +759,8 @@ def _drop_structural_break_hyphen(text: str) -> str:
 
 
 def _word_boundary_moved(originals: list[str], words: list[str]) -> bool:
-    """Whether pairing word *i* with String *i* would attach the wrong box.
-
-    An equal word count is what makes the fast path *possible*; it is not
-    what makes it *correct*. A correction can keep the count and move the
-    boundary — ``au`` + ``jourdhui`` becomes ``aujourd`` + ``hui`` — and
-    then the positional ``zip`` writes seven characters into the box drawn
-    for two. Measured on that line before this guard existed: 8.6 units
-    per character against 273, and the report said ``EXACT``, because the
-    reconstructed text does equal the decision. The fidelity check reads
-    text; it is blind to which box a word landed in.
-
-    Two signals, both cheap, because the fast path exists to be cheap:
-
-    - **The letters are the same and the split is not.** Then the boundary
-      definitively moved: there is no other way to reach the same
-      concatenation with different words. Exact, no threshold, and no
-      false positive by construction.
-    - **A word changed length beyond what a correction plausibly does.**
-      The tolerance is half the original word, floor 1, so ``0`` → ``o``,
-      ``|||`` → ``Ill`` and ``Frauce`` → ``France`` all stay on the fast
-      path while a two-character word becoming seven does not.
-
-    A word-repertoire note on the first signal: it is deliberately the
-    weaker-looking one, and it is the one that carries the case above.
-    ``au``/``jourdhui`` shares ``a`` and ``u`` with ``aujourd``, so a
-    "share at least one character" rule — the obvious first idea, and the
-    one this guard was first written as — **passes** the very line it was
-    meant to catch. Verified before this code was written.
-
-    Returning ``True`` refuses no correction: the caller falls back to the
-    slow path, which aligns tokens instead of assuming positions. The cost
-    is recomputed geometry on that line, which is what the slow path is
-    for.
-    """
-    if originals == words:
-        return False
-    if "".join(originals) == "".join(words):
-        return True
-    return any(
-        abs(len(word) - len(original)) > max(1, len(original) // 2)
-        for original, word in zip(originals, words)
-    )
+    """Shared fast-path boundary check; kept here for existing callers."""
+    return word_boundary_moved(originals, words)
 
 
 def _update_content_in_place(
@@ -798,8 +771,9 @@ def _update_content_in_place(
     """
     When word count matches, update only CONTENT on existing String elements.
 
-    Returns True on success. ALL other attributes (ID, HPOS, VPOS, WIDTH,
-    HEIGHT, WC, CC, STYLEREFS, etc.) and SP/HYP elements stay untouched.
+    Returns True on success. Geometry, style and SP/HYP elements stay
+    untouched. Changed Strings lose stale WC/CC and Glyph children;
+    unchanged Strings keep their annotations verbatim.
 
     An equal word count is necessary and **not sufficient**: see
     :func:`_word_boundary_moved`. The check runs before anything is
@@ -827,6 +801,8 @@ def _update_content_in_place(
             for attr in ("WC", "CC"):
                 if attr in string_el.attrib:
                     del string_el.attrib[attr]
+            for glyph in string_el.findall(_tag("Glyph", ns)):
+                string_el.remove(glyph)
     return True
 
 
@@ -1296,6 +1272,7 @@ def rewrite_alto_file(
     lib_version: str | None = None,
     config_fingerprint: str | None = None,
     word_geometry: WordGeometryResolver | None = None,
+    _source_bytes: bytes | None = None,
 ) -> RewriteResult:
     """
     Rewrite an ALTO XML file with corrected text from page_manifests.
@@ -1309,10 +1286,8 @@ def rewrite_alto_file(
     Returns a :class:`RewriteResult` (bytes, metrics, per-line rewriter
     paths, final texts, losses).
     """
-    # Hardened parser — see saknussemm.formats.alto._ns.make_safe_parser docstring
-    # for the rationale. Using lxml's default here would expose every
-    # rewrite to entity-amplification DoS via crafted ALTO uploads.
-    tree = read_source_tree_classified(xml_path)
+    # Parse the source with the shared XML protections, including snapshots.
+    tree = read_source_tree_classified(xml_path, source_bytes=_source_bytes)
     root = tree.getroot()
     ns = _detect_namespace(root)
     metrics = RewriterMetrics()
@@ -1333,12 +1308,8 @@ def rewrite_alto_file(
         for key, value in line_losses.items():
             losses[key] = losses.get(key, 0) + value
 
-    # ADR-007 — a bare line_id keys every correction-to-element
-    # association below. A duplicate (in the manifests OR on the XML
-    # elements) would silently apply one line's correction to another
-    # physical line, so both sides fail loudly instead. Parsers enforce
-    # the same invariant up front; this guards direct calls with
-    # hand-built manifests via the canonical shared check.
+    # IDs key correction-to-element associations. Check both the manifest
+    # and the XML so direct calls cannot silently target a duplicate line.
     ensure_unique_identities(page_manifests, xml_path.name)
     line_by_id: dict[str, LineManifest] = {
         lm.line_id: lm for page in page_manifests for lm in page.lines
@@ -1365,7 +1336,7 @@ def rewrite_alto_file(
         # Read BEFORE any path touches the tree, so what is reported is what
         # actually left the line rather than what the chosen path is assumed
         # to remove (R4).
-        conf_before = _confidence_attr_count(tl_el, ns)
+        annotations_before = _annotation_counts(tl_el, ns)
 
         # --- Path 1: UNTOUCHED ---
         if not text_changed and not subs_changed:
@@ -1378,7 +1349,7 @@ def rewrite_alto_file(
             _apply_subs(tl_el, lm, ns)
             metrics.subs_only += 1
             line_paths[line_id] = "subs_only"
-            record(line_id, _confidence_loss(conf_before, tl_el, ns))
+            record(line_id, _annotation_losses(annotations_before, tl_el, ns))
             continue
 
         # An EXPLICIT PART1 line carries its end-of-line hyphen structurally,
@@ -1397,7 +1368,7 @@ def rewrite_alto_file(
             _apply_subs(tl_el, lm, ns)
             metrics.fast_path += 1
             line_paths[line_id] = "fast_path"
-            record(line_id, _confidence_loss(conf_before, tl_el, ns))
+            record(line_id, _annotation_losses(annotations_before, tl_el, ns))
             continue
 
         # --- Path 4: SLOW PATH (word count changed) ---
@@ -1411,7 +1382,10 @@ def rewrite_alto_file(
         _apply_subs(tl_el, lm, ns)
         metrics.slow_path += 1
         line_paths[line_id] = "slow_path"
-        record(line_id, {**line_losses, **_confidence_loss(conf_before, tl_el, ns)})
+        record(
+            line_id,
+            {**line_losses, **_annotation_losses(annotations_before, tl_el, ns)},
+        )
         # R5 — a suspected reorder is a DIAGNOSTIC, not a loss: nothing left
         # the markup, the alignment simply could not vouch for the order it
         # was handed. It rode in the loss dict, so `sum(format_losses)`
@@ -1503,24 +1477,13 @@ def _add_processing_entry(
     lib_version: str | None = None,
     config_fingerprint: str | None = None,
 ) -> None:
-    """Record a ``processingStep`` documenting the correction pass (§11).
+    """Append schema-valid provenance without changing earlier records.
 
-    Beyond the provider/model already written, the step now carries the
-    **library version** and a **configuration fingerprint** (§8.2) so a
-    corrected XML says by what and under which policy it was produced. Both
-    are optional for backward compatibility; when omitted the historical
-    description is emitted verbatim.
-
-    Placement follows the ALTO container actually present:
-
-    - ``<Processing>`` (the ALTO 4.0 generic slot) → append a
-      ``<processingStep>`` (historical saknussemm behaviour, unchanged).
-    - ``<OCRProcessing>`` (what real ABBYY / Tesseract / Gallica exports
-      use) → append a ``<postProcessingStep>`` there. Without this branch
-      §11's "every corrected file records the pass" silently failed for
-      exactly the files real users bring — none of them carry ``<Processing>``.
-    - neither, but a ``<Description>`` exists → create a ``<Processing>`` so
-      the pass is still recorded rather than dropped.
+    In ALTO 4 a ``Processing`` IS a processing step, with its own required
+    ID and direct description/software children. ALTO 2/3 instead require
+    ``postProcessingStep`` inside ``OCRProcessing``. An absent legacy
+    container needs an empty, mandatory ``ocrProcessingStep``; leaving its
+    details empty does not invent an OCR engine or date.
     """
     desc = root.find(_tag("Description", ns))
     if desc is None:
@@ -1529,19 +1492,21 @@ def _add_processing_entry(
         provider, model, lib_version, config_fingerprint
     )
 
-    processing = desc.find(_tag("Processing", ns))
-    if processing is not None:
-        _append_processing_step(processing, ns, description)
-        return
-
-    ocr_processings = desc.findall(_tag("OCRProcessing", ns))
-    if ocr_processings:
-        _append_post_processing_step(ocr_processings[-1], ns, description, lib_version)
-        return
-
-    _append_processing_step(
-        etree.SubElement(desc, _tag("Processing", ns)), ns, description
-    )
+    if ns == "http://www.loc.gov/standards/alto/ns-v4#":
+        step = etree.SubElement(desc, _tag("Processing", ns), ID=_processing_id(root))
+        category = etree.SubElement(step, _tag("processingCategory", ns))
+        category.text = "contentModification"
+    else:
+        ocr_processings = desc.findall(_tag("OCRProcessing", ns))
+        if ocr_processings:
+            processing = ocr_processings[-1]
+        else:
+            processing = etree.SubElement(
+                desc, _tag("OCRProcessing", ns), ID=_processing_id(root)
+            )
+            etree.SubElement(processing, _tag("ocrProcessingStep", ns))
+        step = etree.SubElement(processing, _tag("postProcessingStep", ns))
+    _write_processing_details(step, ns, description, lib_version)
 
 
 def _provenance_description(
@@ -1559,29 +1524,22 @@ def _provenance_description(
     return f"Post-OCR correction via {provider}/{model} ({provenance})"
 
 
-def _append_processing_step(
-    processing: etree._Element, ns: str, description: str
-) -> None:
-    """Record the pass as a ``<processingStep>`` (ALTO 4.0 ``<Processing>``)."""
-    step = etree.SubElement(processing, _tag("processingStep", ns))
-    step.set("type", "contentModification")
-    step.set("description", description)
+def _processing_id(root: etree._Element) -> str:
+    """A deterministic XML ID, distinct from every existing document ID."""
+    used = {element.get("ID") for element in root.iter()}
+    index = 1
+    while (candidate := f"saknussemm_processing_{index}") in used:
+        index += 1
+    return candidate
 
 
-def _append_post_processing_step(
-    ocr_processing: etree._Element,
+def _write_processing_details(
+    step: etree._Element,
     ns: str,
     description: str,
     lib_version: str | None,
 ) -> None:
-    """Record the pass as a ``<postProcessingStep>`` inside ``<OCRProcessing>``.
-
-    ``postProcessingStep`` is the ALTO-standard slot for work done after OCR
-    (LoC ``OCRProcessingType``); it is appended after any existing
-    pre/ocr/post steps, keeping the source OCR record intact. Child order
-    follows ``ProcessingStepType``: description before software.
-    """
-    step = etree.SubElement(ocr_processing, _tag("postProcessingStep", ns))
+    """Shared processingStepType fields, in their schema-defined order."""
     desc_el = etree.SubElement(step, _tag("processingStepDescription", ns))
     desc_el.text = description
     software = etree.SubElement(step, _tag("processingSoftware", ns))

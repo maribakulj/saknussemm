@@ -13,7 +13,7 @@ from __future__ import annotations
 
 
 from saknussemm.core import decide
-from saknussemm.core.alignment import align_tokens
+from saknussemm.core.alignment import align_tokens, word_boundary_moved
 from saknussemm.core.guards import (
     check_adjacent_duplicates,
     check_boundary_migration,
@@ -307,10 +307,9 @@ def _loss_policy_pass(
 
     **STRICT**: reject corrections that cannot project without
     losing word granularity. The PAGE rewriter drops a line's
-    ``Word`` children when the corrected word count diverges from
-    the markup's (6.2 P4 slow path) — the one predictable,
-    decision-relevant format loss. ``LineManifest.word_count``
-    carries the markup's count from parse time, so the check runs in
+    ``Word`` children when their count or boundaries no longer match
+    the corrected text (6.2 P4 slow path). The manifest carries the
+    markup's count and private Word readings from parse time, so the check runs in
     the pure core, BEFORE the decisions materialize: a rejected line
     falls back to source (whole hyphen unit, ADR-010) and its
     rewrite becomes untouched — the source geometry survives.
@@ -334,11 +333,20 @@ def _loss_policy_pass(
                     continue
                 if lm.corrected_text == lm.ocr_text:
                     continue  # identity projects untouched
-                n_corrected = len(lm.corrected_text.split())
-                if n_corrected != lm.word_count:
+                corrected_words = lm.corrected_text.split()
+                source_words = lm._source_word_texts
+                if source_words is None and lm.word_count > 0:
                     reverts[line_ref(lm)] = (
-                        "format_loss: corrected word count "
-                        f"{n_corrected} != source Word markup {lm.word_count} "
+                        "format_loss: source Word readings unavailable "
+                        "— cannot verify word geometry (LossPolicy strict)"
+                    )
+                    continue
+                if len(corrected_words) != lm.word_count or word_boundary_moved(
+                    source_words or [], corrected_words
+                ):
+                    reverts[line_ref(lm)] = (
+                        "format_loss: corrected word count or boundaries differ "
+                        "from the source Word markup "
                         "— unprojectable without dropping word geometry "
                         "(LossPolicy strict)"
                     )

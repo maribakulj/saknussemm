@@ -56,6 +56,31 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Fixed
 
+- **Intégrité des sorties ALTO/PAGE.** La provenance ALTO 4 utilise un
+  `Processing` valide avec ID unique. Les glyphes périmés des mots modifiés
+  et les lectures agrégées périmées des régions PAGE sont supprimés et
+  comptés. PAGE détecte les déplacements de frontières même à nombre de mots
+  constant : suppression des Word en mode normal, repli en mode strict.
+  Les `TextEquiv` créés respectent l'ordre XSD et les offsets périmés des
+  régions sont invalidés avec leurs lectures agrégées.
+  Strict refuse aussi une correction avec Word sans les lectures sources
+  privées du parser, notamment après restauration JSON du manifest.
+- **Sources et octets livrés.** Les empreintes des parsers portent sur les
+  octets réellement lus. Les adaptateurs natifs réécrivent une capture
+  immuable vérifiée avant correction. Le pipeline vérifie le XML sérialisé,
+  l'inventaire des lignes, leurs textes et les diagnostics XSD des versions
+  embarquées ; une nouvelle violation retient le fichier. Les dialectes
+  déjà invalides gardent un contrôle relatif, sans certification XSD globale.
+  Les adaptateurs personnalisés conservent leur protocole Path avec contrôle
+  de stabilité avant/après ; voir `docs/format-support.md` pour les limites.
+- **Écriture des résultats.** `report.json` / `sidecar.json`, les noms
+  inutilisables et les collisions de casse/normalisation Unicode sont refusés
+  avant écriture. Les liens symboliques existants sont refusés ; chaque
+  fichier est remplacé atomiquement sans suivre une cible de lien. Les droits
+  d'un fichier régulier remplacé sont conservés, ceux d'un nouveau fichier
+  sont `0600`. Le lot complet n'est pas une transaction et le répertoire
+  reste sous contrôle de l'appelant.
+
 - **Chemin lent : deux défauts de la source ne se propagent plus dans la
   géométrie ancrée**, trouvés en confrontant le rewriter à un OCR réel
   (Tesseract) corrigé par une vérité terrain dont les boîtes au mot

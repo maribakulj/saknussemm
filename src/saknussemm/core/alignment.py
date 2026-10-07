@@ -36,6 +36,25 @@ _MOVE_SIMILARITY = 0.8
 _WEAK_MATCH = 0.5
 
 
+def word_boundary_moved(originals: list[str], words: list[str]) -> bool:
+    """Whether equal-count positional pairing would misplace word geometry.
+
+    The same letters with different token boundaries prove a move, e.g.
+    ``au jourdhui`` -> ``aujourd hui``. A large change in an individual
+    word's length also declines the fast path: half its old length, with
+    a floor of one character, leaves ordinary OCR substitutions alone.
+    Both format rewriters and the loss-policy gate use this same rule.
+    """
+    if originals == words:
+        return False
+    if "".join(originals) == "".join(words):
+        return True
+    return any(
+        abs(len(word) - len(original)) > max(1, len(original) // 2)
+        for original, word in zip(originals, words)
+    )
+
+
 def char_similarity(a: str, b: str) -> float:
     """Character-level similarity in [0, 1]: 1 − levenshtein/max_len.
 
