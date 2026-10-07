@@ -138,3 +138,56 @@ def test_glyph_removals_match_the_file_and_reach_the_report(
         after = root.xpath(".//a:String[@ID='W2']", namespaces=ns)[0]
         assert etree.tostring(before) == etree.tostring(after)
         assert losses["confidence_invalidated"] == 1
+
+
+@pytest.mark.parametrize("replacement", ["cot", "cat new"])
+@pytest.mark.parametrize("existing_broken", [False, True])
+def test_removing_a_referenced_glyph_withholds_the_file(
+    tmp_path: Path, replacement: str, existing_broken: bool
+) -> None:
+    from saknussemm.errors import ProjectionError
+
+    broken = (
+        '<ElementRef ID="broken" REF="already_missing"/>' if existing_broken else ""
+    )
+    reading_order = (
+        '<ReadingOrder><OrderedGroup ID="order">'
+        f'{broken}<ElementRef ID="reference" REF="W1_g0 W2_g0"/>'
+        "</OrderedGroup></ReadingOrder>"
+    )
+    raw = _source(4, glyphs=True).replace(
+        b"<Layout>", reading_order.encode() + b"<Layout>"
+    )
+    assert validate_bytes(raw) == []
+    path = tmp_path / "referenced.xml"
+    path.write_bytes(raw)
+    document = load(path)
+    result = correct_sync(
+        document, producer=RulesProducer([SubstitutionRule("cat", replacement)])
+    )
+    assert result.corrected_files == {}
+    assert "W1_g0" in result.undeliverable_files[path.name]
+    assert "dangling" in result.undeliverable_files[path.name]
+    doc = build_document_manifest([(path, path.name)])
+    doc.pages[0].lines[0].corrected_text = f"{replacement} dog"
+    with pytest.raises(ProjectionError, match="W1_g0"):
+        rewrite_alto_file(path, doc.pages, "test", "rules")
+
+
+def test_unchanged_missing_reference_does_not_block_correction(tmp_path: Path) -> None:
+    reading_order = (
+        '<ReadingOrder><OrderedGroup ID="order">'
+        '<ElementRef ID="reference" REF="already_missing W2_g0"/>'
+        "</OrderedGroup></ReadingOrder>"
+    )
+    path = tmp_path / "existing-defect.xml"
+    path.write_bytes(
+        _source(4, glyphs=True).replace(
+            b"<Layout>", reading_order.encode() + b"<Layout>"
+        )
+    )
+    result = correct_sync(
+        load(path), producer=RulesProducer([SubstitutionRule("cat", "cot")])
+    )
+    assert not result.undeliverable_files
+    assert b'REF="already_missing W2_g0"' in result.corrected_files[path.name]

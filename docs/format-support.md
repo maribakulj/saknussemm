@@ -36,6 +36,12 @@ namespace offline (schemas + provenance: `../src/saknussemm/formats/xsd/`).
   diagnostics do not prove that this subtree stayed conformant. Rejected
   files appear in `undeliverable_files`; `write()` refuses an incomplete
   result by default.
+  A separate check rejects new dangling ALTO `REF`, `STYLEREFS`, `TAGREFS`,
+  `PROCESSINGREFS`, `IDNEXT`, `PROCESSING`, and PAGE `regionRef` references.
+  Existing defects are compared by owner, attribute and target, not only
+  their total count. This checks target existence, not its semantic type;
+  vendor reference attributes remain outside this check. ALTO `FILEID`
+  is a string and is not treated as an XML ID reference.
   Validation is offline. Namespaces without a bundled schema still receive
   the XML/text checks, but **no XSD guarantee**. Direct low-level rewriter
   calls do not run this pipeline gate.

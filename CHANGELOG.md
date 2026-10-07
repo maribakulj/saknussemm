@@ -65,6 +65,9 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   régions sont invalidés avec leurs lectures agrégées.
   Strict refuse aussi une correction avec Word sans les lectures sources
   privées du parser, notamment après restauration JSON du manifest.
+  Le garde commun ALTO/PAGE détecte aussi un déplacement accompagné d'une
+  faute OCR (`le stcmps` → `les temps`) en comparant les coûts d'édition de
+  mots adjacents séparés et concaténés ; il reste une heuristique textuelle.
 - **Sources et octets livrés.** Les empreintes des parsers portent sur les
   octets réellement lus. Les adaptateurs natifs réécrivent une capture
   immuable vérifiée avant correction. Le pipeline vérifie le XML sérialisé,
@@ -73,6 +76,10 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   déjà invalides gardent un contrôle relatif, sans certification XSD globale.
   Les adaptateurs personnalisés conservent leur protocole Path avec contrôle
   de stabilité avant/après ; voir `docs/format-support.md` pour les limites.
+  Les références XML sont vérifiées séparément du XSD : supprimer un Glyph
+  ou un autre élément encore référencé retient le fichier, y compris dans
+  le réécrivain ALTO direct. Les défauts préexistants sont comparés par
+  propriétaire, attribut et cible ; un défaut différent ne peut les remplacer.
 - **Écriture des résultats.** `report.json` / `sidecar.json`, les noms
   inutilisables et les collisions de casse/normalisation Unicode sont refusés
   avant écriture. Les liens symboliques existants sont refusés ; chaque
@@ -81,6 +88,9 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   sont `0600`. Le nom temporaire court permet aussi l'écriture de sources
   dont le nom approche la limite du système de fichiers. Le lot complet
   n'est pas une transaction et le répertoire reste sous contrôle de l'appelant.
+  Un ancien `sidecar.json` est retiré lorsque le nouveau résultat n'en a plus ;
+  les autres fichiers ne sont pas effacés. Une écriture partielle refuse un
+  dossier contenant un ancien XML pour un fichier actuellement non livrable.
 
 - **Chemin lent : deux défauts de la source ne se propagent plus dans la
   géométrie ancrée**, trouvés en confrontant le rewriter à un OCR réel

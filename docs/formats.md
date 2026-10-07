@@ -40,6 +40,15 @@ dropped attribute surfaces on `CorrectionReport.format_losses` as
 `confidence_invalidated`; recomputed geometry is not a loss counter.
 Removed Glyph elements are counted under `glyph_elements_removed`.
 Unchanged words on the fast path keep their glyphs.
+If removing an element would leave a previously resolved XML reference
+dangling, the ALTO rewriter raises `ProjectionError`; the pipeline withholds
+the file. It does not guess a replacement target for reading-order links.
+
+Both formats suspect a boundary move when editing adjacent words together
+costs fewer character edits than keeping their separate slots. This catches
+`le stcmps` → `les temps`, including its OCR typo. It remains a text-only
+heuristic: ambiguous edits can have equal costs, and geometry is not proven
+correct by retaining the fast path or by reporting text fidelity `exact`.
 
 ## PAGE (`saknussemm.formats.page`)
 

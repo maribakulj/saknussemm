@@ -142,6 +142,26 @@ def test_unmodified_custom_adapter_is_still_called(tmp_path):
     assert not result.report.undeliverable_files
 
 
+def test_custom_adapter_cannot_delete_a_referenced_style(tmp_path):
+    path = tmp_path / "source.xml"
+    root = etree.fromstring((EXAMPLES / "sample.xml").read_bytes())
+    ns = etree.QName(root).namespace
+    styles = etree.Element(f"{{{ns}}}Styles")
+    etree.SubElement(styles, f"{{{ns}}}TextStyle", ID="referenced_style")
+    root.insert(1, styles)
+    root.find(".//{*}String").set("STYLEREFS", "referenced_style")
+    path.write_bytes(etree.tostring(root))
+
+    def drop_style(root):
+        style = root.find(".//{*}TextStyle")
+        assert style.get("ID") in root.xpath("//@STYLEREFS")
+        style.getparent().remove(style)
+
+    result = _run(path, _Adapter(drop_style))
+    assert not result.corrected_files
+    assert "dangling" in result.undeliverable_files[path.name]
+
+
 def test_custom_adapter_cannot_change_source_during_rewrite(tmp_path):
     path = tmp_path / "source.xml"
     path.write_bytes((EXAMPLES / "sample.xml").read_bytes())

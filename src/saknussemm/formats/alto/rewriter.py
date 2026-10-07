@@ -30,6 +30,10 @@ from saknussemm.formats.alto._ns import (
     make_safe_parser,
 )
 from saknussemm.formats._xml import read_source_tree_classified
+from saknussemm.formats._references import (
+    dangling_references,
+    require_no_new_dangling_references,
+)
 from saknussemm.formats.alto._geometry import (
     AnchoredLayout,
     LineAnchors,
@@ -1290,6 +1294,7 @@ def rewrite_alto_file(
     tree = read_source_tree_classified(xml_path, source_bytes=_source_bytes)
     root = tree.getroot()
     ns = _detect_namespace(root)
+    source_references = dangling_references(root)
     metrics = RewriterMetrics()
     line_paths: dict[str, str] = {}
     losses: dict[str, int] = {}
@@ -1395,6 +1400,7 @@ def rewrite_alto_file(
             word_order_suspected.add(line_id)
 
     _add_processing_entry(root, ns, provider, model, lib_version, config_fingerprint)
+    require_no_new_dangling_references(root, source_references)
     # pretty_print=False: avoid gratuitously reformatting the entire XML
     # (whitespace between elements) when the user only changed CONTENT on a
     # handful of lines. Users comparing source vs. output should see only

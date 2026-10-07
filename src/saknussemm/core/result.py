@@ -24,6 +24,11 @@ from saknussemm.core.report import _build_final_edit_script
 from saknussemm.core.schemas import CorrectionReport, LineTrace, Usage
 
 
+def _portable_filename(name: str) -> str:
+    """One filename identity for case-insensitive and Unicode-normalizing disks."""
+    return unicodedata.normalize("NFD", name).casefold()
+
+
 def _replace_output(path: Path, content: bytes) -> None:
     """Replace one directory entry without ever opening its previous target.
 
@@ -175,7 +180,7 @@ class CorrectionResult:
                 )
             # Conservative across filesystems: names must remain distinct
             # under both Unicode decomposition and case-insensitive lookup.
-            portable_name = unicodedata.normalize("NFD", flattened).casefold()
+            portable_name = _portable_filename(flattened)
             # Reserve both names even when this run has no sidecar, and on
             # case-insensitive filesystems as well as case-sensitive ones.
             if portable_name in {"report.json", "sidecar.json"}:
@@ -254,6 +259,11 @@ class CorrectionResult:
         files use private permissions (0600); replacing a regular file
         preserves its permission bits.
 
+        An obsolete sidecar.json is removed when the current sidecar is
+        empty. A partial write refuses an existing path named for a withheld
+        source, since its old XML could be mistaken for a current result.
+        Other files are never removed; use a new directory for each run.
+
         ADR-011 — a caller-side convenience, not engine behaviour: the
         engine only computes values. Hosts that own a file transaction
         (commit/discard staging) keep their injected writer instead.
@@ -279,15 +289,37 @@ class CorrectionResult:
                 indent=2,
                 ensure_ascii=False,
             ).encode("utf-8")
-        for path in outputs:
+        sidecar_path = target / "sidecar.json"
+        output_names = {_portable_filename(path.name) for path in outputs}
+        existing_names = (
+            {_portable_filename(path.name) for path in target.iterdir()}
+            if self.undeliverable_files and target.is_dir()
+            else set()
+        )
+        for source_name in self.undeliverable_files:
+            withheld_path = target / Path(source_name).name
+            if _portable_filename(withheld_path.name) in output_names | existing_names:
+                raise ConfigurationError(
+                    f"Refusing to leave {str(withheld_path)!r} beside the report: "
+                    "this source is undeliverable in the current run. "
+                    "Use a new destination directory for a partial result."
+                )
+        for path in outputs.keys() | {sidecar_path}:
             if path.is_symlink():
                 raise ConfigurationError(
                     f"Refusing to write {str(path)!r}: the output is a symbolic link. "
                     "Use a destination containing only regular output files."
                 )
+        if sidecar_path.exists() and not sidecar_path.is_file():
+            raise ConfigurationError(
+                f"Refusing to replace or remove {str(sidecar_path)!r}: "
+                "sidecar.json is not a regular file."
+            )
         target.mkdir(parents=True, exist_ok=True)
         for path, content in outputs.items():
             _replace_output(path, content)
+        if not self.report.sidecar:
+            sidecar_path.unlink(missing_ok=True)
         return list(outputs)
 
 

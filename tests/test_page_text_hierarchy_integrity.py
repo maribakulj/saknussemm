@@ -78,6 +78,36 @@ def _rewrite(path: Path, changes: dict[str, str]):
 
 
 @pytest.mark.parametrize("strict", [False, True])
+def test_boundary_move_with_a_typo_does_not_retain_positional_polygons(
+    tmp_path: Path, strict: bool
+) -> None:
+    path = _source(tmp_path)
+    root = etree.fromstring(path.read_bytes())
+    old = root.xpath('.//p:TextLine[@id="l1"]', namespaces=_MAP)[0]
+    replacement = etree.fromstring(
+        (f'<root xmlns="{_NS}">' + _line("l1", ["le", "stcmps"]) + "</root>").encode()
+    )[0]
+    old.getparent().replace(old, replacement)
+    path.write_bytes(etree.tostring(root))
+    document = load(path)
+    result = CorrectionPipeline(
+        producer=RulesProducer([SubstitutionRule("le stcmps", "les temps")]),
+        observer=RecordingObserver(),
+        loss_policy=LossPolicy(strict=strict),
+    ).run_sync(document_manifest=document.manifest, source_files=document.source_paths)
+    outcome = next(line for line in result.report.lines if line.line_id == "l1")
+    assert outcome.projection is not None
+    if strict:
+        assert outcome.decision.status == LineStatus.FALLBACK
+        assert outcome.projection.rewriter_path == "untouched"
+    else:
+        assert outcome.decision.status == LineStatus.CORRECTED
+        assert outcome.projection.rewriter_path == "slow_path"
+        assert outcome.projection.losses["words_dropped"] == 2
+    assert validate_bytes(result.corrected_files[path.name]) == []
+
+
+@pytest.mark.parametrize("strict", [False, True])
 def test_boundary_move_at_constant_count_never_keeps_wrong_boxes(
     tmp_path: Path, strict: bool
 ) -> None:

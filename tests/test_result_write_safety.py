@@ -40,6 +40,82 @@ def _with_sidecar(result: CorrectionResult) -> None:
     ]
 
 
+def test_reusing_a_directory_removes_only_the_obsolete_sidecar(result, tmp_path):
+    target = tmp_path / "output"
+    _with_sidecar(result)
+    result.write(target)
+    unrelated = target / "notes.txt"
+    unrelated.write_text("keep")
+    result.report.sidecar = []
+    written = result.write(target)
+    assert not (target / "sidecar.json").exists()
+    assert json.loads((target / "report.json").read_bytes())["sidecar"] == []
+    assert unrelated.read_text() == "keep"
+    assert "sidecar.json" not in {path.name for path in written}
+
+
+@pytest.mark.parametrize("obstacle", ["symlink", "directory"])
+def test_obsolete_sidecar_obstacle_is_refused_before_any_write(
+    result, tmp_path, obstacle
+):
+    target = tmp_path / "output"
+    target.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_text("keep")
+    sidecar = target / "sidecar.json"
+    if obstacle == "symlink":
+        sidecar.symlink_to(outside)
+    else:
+        sidecar.mkdir()
+    with pytest.raises(ConfigurationError, match="sidecar"):
+        result.write(target)
+    assert {path.name for path in target.iterdir()} == {"sidecar.json"}
+    assert outside.read_text() == "keep"
+
+
+def test_partial_write_refuses_an_old_xml_for_a_withheld_file(result, tmp_path):
+    target = tmp_path / "output"
+    result.write(target)
+    old = target / "withheld.xml"
+    old.write_bytes(b"old XML must not look like a current deliverable")
+    before = {p.name: p.read_bytes() for p in target.iterdir()}
+    result.undeliverable_files["volume/withheld.xml"] = "projection failed"
+    with pytest.raises(ConfigurationError, match="withheld.xml"):
+        result.write(target, allow_partial=True)
+    assert {p.name: p.read_bytes() for p in target.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    ("delivered", "withheld"),
+    [
+        ("a.xml", "A.xml"),
+        ("été.xml", "e\u0301te\u0301.xml"),
+        ("page.xml", "REPORT.JSON"),
+    ],
+)
+def test_partial_write_refuses_portable_aliases_of_withheld_names(
+    result, tmp_path, delivered, withheld
+):
+    result.corrected_files = {delivered: b"<delivered/>"}
+    result.undeliverable_files = {withheld: "projection failed"}
+    target = tmp_path / "new-output"
+    with pytest.raises(ConfigurationError, match="undeliverable"):
+        result.write(target, allow_partial=True)
+    assert not target.exists()
+
+
+def test_partial_write_refuses_an_existing_portable_alias(result, tmp_path):
+    target = tmp_path / "output"
+    target.mkdir()
+    old = target / "A.xml"
+    old.write_bytes(b"old XML")
+    result.undeliverable_files = {"a.xml": "projection failed"}
+    with pytest.raises(ConfigurationError, match="undeliverable"):
+        result.write(target, allow_partial=True)
+    assert old.read_bytes() == b"old XML"
+    assert len(list(target.iterdir())) == 1
+
+
 def test_a_valid_long_filename_survives_atomic_write(
     result: CorrectionResult, tmp_path: Path
 ) -> None:

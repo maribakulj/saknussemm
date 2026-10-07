@@ -39,20 +39,30 @@ _WEAK_MATCH = 0.5
 def word_boundary_moved(originals: list[str], words: list[str]) -> bool:
     """Whether equal-count positional pairing would misplace word geometry.
 
-    The same letters with different token boundaries prove a move, e.g.
-    ``au jourdhui`` -> ``aujourd hui``. A large change in an individual
-    word's length also declines the fast path: half its old length, with
-    a floor of one character, leaves ordinary OCR substitutions alone.
-    Both format rewriters and the loss-policy gate use this same rule.
+    The same letters with different token boundaries prove a move. With
+    OCR substitutions too, adjacent words are suspect when editing their
+    concatenation costs less than editing each word in its original slot.
+    Large length changes also decline positional pairing. This remains a
+    text-only heuristic, shared by both rewriters and the loss-policy gate.
     """
     if originals == words:
         return False
     if "".join(originals) == "".join(words):
         return True
-    return any(
+    if any(
         abs(len(word) - len(original)) > max(1, len(original) // 2)
         for original, word in zip(originals, words)
-    )
+    ):
+        return True
+    for i in range(min(len(originals), len(words)) - 1):
+        left, right = originals[i : i + 2]
+        new_left, new_right = words[i : i + 2]
+        if left == new_left or right == new_right:
+            continue
+        separate = _edit_distance(left, new_left) + _edit_distance(right, new_right)
+        if _edit_distance(left + right, new_left + new_right) < separate:
+            return True
+    return False
 
 
 def char_similarity(a: str, b: str) -> float:
@@ -65,6 +75,11 @@ def char_similarity(a: str, b: str) -> float:
         return 1.0
     if not a or not b:
         return 0.0
+    return 1.0 - _edit_distance(a, b) / max(len(a), len(b))
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Character edit cost, also used to compare independent word slots."""
     # Classic two-row Levenshtein — tokens are words, lengths are tiny.
     previous = list(range(len(b) + 1))
     for i, ca in enumerate(a, start=1):
@@ -78,7 +93,7 @@ def char_similarity(a: str, b: str) -> float:
                 )
             )
         previous = current
-    return 1.0 - previous[-1] / max(len(a), len(b))
+    return previous[-1]
 
 
 @dataclass(frozen=True)
