@@ -78,8 +78,9 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   avant écriture. Les liens symboliques existants sont refusés ; chaque
   fichier est remplacé atomiquement sans suivre une cible de lien. Les droits
   d'un fichier régulier remplacé sont conservés, ceux d'un nouveau fichier
-  sont `0600`. Le lot complet n'est pas une transaction et le répertoire
-  reste sous contrôle de l'appelant.
+  sont `0600`. Le nom temporaire court permet aussi l'écriture de sources
+  dont le nom approche la limite du système de fichiers. Le lot complet
+  n'est pas une transaction et le répertoire reste sous contrôle de l'appelant.
 
 - **Chemin lent : deux défauts de la source ne se propagent plus dans la
   géométrie ancrée**, trouvés en confrontant le rewriter à un OCR réel

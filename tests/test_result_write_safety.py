@@ -40,6 +40,21 @@ def _with_sidecar(result: CorrectionResult) -> None:
     ]
 
 
+def test_a_valid_long_filename_survives_atomic_write(
+    result: CorrectionResult, tmp_path: Path
+) -> None:
+    name = "x" * 246 + ".xml"
+    content = result.corrected_files["sample.xml"]
+    result.corrected_files = {name: content}
+    target = tmp_path / "output"
+
+    written = result.write(target)
+
+    assert (target / name).read_bytes() == content
+    assert {path.name for path in written} == {name, "report.json"}
+    assert {path.name for path in target.iterdir()} == {name, "report.json"}
+
+
 @pytest.mark.parametrize(
     "source_name",
     ["report.json", "volume/report.json", "REPORT.JSON", "sidecar.json"],

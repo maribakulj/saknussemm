@@ -38,7 +38,7 @@ def _replace_output(path: Path, content: bytes) -> None:
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+            dir=path.parent, prefix=".saknussemm-", suffix=".tmp", delete=False
         ) as stream:
             temporary = Path(stream.name)
             stream.write(content)

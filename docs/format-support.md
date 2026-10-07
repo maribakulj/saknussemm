@@ -31,11 +31,20 @@ namespace offline (schemas + provenance: `../src/saknussemm/formats/xsd/`).
   namespaces it also compares XSD diagnostics against the source: a valid
   source requires a valid output; existing dialect messages are tolerated
   only up to their original occurrence count. This compares diagnostics,
-  not the location of each pre-existing defect. Rejected files appear in
-  `undeliverable_files`; `write()` refuses an incomplete result by default.
+  not the location of each pre-existing defect. A schema error can also
+  prevent libxml from validating the remainder of a subtree: unchanged
+  diagnostics do not prove that this subtree stayed conformant. Rejected
+  files appear in `undeliverable_files`; `write()` refuses an incomplete
+  result by default.
   Validation is offline. Namespaces without a bundled schema still receive
   the XML/text checks, but **no XSD guarantee**. Direct low-level rewriter
   calls do not run this pipeline gate.
+
+For a production workflow requiring full schema conformance, require
+`validate_bytes(output) == []` on every candidate before ingestion and use
+only namespaces with a bundled schema. A tolerant dialect round-trip is
+an explicit exception for the host to review, not a schema certification.
+Even full XSD validity does not establish text accuracy or correct boxes.
 
 ## Source stability
 
