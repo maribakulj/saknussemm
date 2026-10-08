@@ -25,17 +25,14 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from saknussemm.core.protocols import FormatAdapter
+from saknussemm.core.protocols import FormatAdapter, WordGeometryResolver
 from saknussemm.core.schemas import (
     DEFAULT_PAIRING_POLICY,
     DocumentManifest,
     PairingPolicy,
 )
 from saknussemm.errors import ConfigurationError, ParseError
-from saknussemm.formats._xml import (
-    mislabelled_utf8,
-    sniff_format,
-)
+from saknussemm.formats._xml import sniff_format
 
 
 def build_document_manifest(
@@ -71,25 +68,14 @@ def build_document_manifest(
         from saknussemm.formats.alto.parser import (
             build_document_manifest as build,
         )
-    manifest = build(files, pairing_policy=pairing_policy)
-
-    # A file read as something other than what it declared is an override,
-    # and an override that nobody can see is exactly the undeclared
-    # alteration the contract forbids. `read_source_tree` already
-    # applied it —
-    # here it is *named*, once, where the caller receives the document.
-    # Same rule, one definition (``mislabelled_utf8``), two callers.
-    overrides = {
-        name: declared
-        for path, name in files
-        if (declared := mislabelled_utf8(path.read_bytes())) is not None
-    }
-    if overrides:
-        manifest = manifest.model_copy(update={"source_encodings": overrides})
-    return manifest
+    # Builders derive text, digest and encoding overrides from the same
+    # captured bytes. Reopening here could attest a different revision.
+    return build(files, pairing_policy=pairing_policy)
 
 
-def adapter_for_format(source_format: str | None) -> FormatAdapter:
+def adapter_for_format(
+    source_format: str | None, *, word_geometry: WordGeometryResolver | None = None
+) -> FormatAdapter:
     """Resolve the adapter the MANIFEST declares — no implicit default (§3).
 
     The format travels with the document: the parsers stamp
@@ -114,8 +100,14 @@ def adapter_for_format(source_format: str | None) -> FormatAdapter:
     if source_format == "alto":
         from saknussemm.formats.alto.adapter import AltoFormatAdapter
 
-        return AltoFormatAdapter()
+        return AltoFormatAdapter(word_geometry=word_geometry)
     if source_format == "page":
+        if word_geometry is not None:
+            raise ConfigurationError(
+                "word_geometry was given but the document is PAGE: the PAGE "
+                "rewriter keeps or drops Word boxes and has no geometric slow "
+                "path to hand a resolver (docs/formats.md)"
+            )
         from saknussemm.formats.page.adapter import PageFormatAdapter
 
         return PageFormatAdapter()

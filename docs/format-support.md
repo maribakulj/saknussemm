@@ -25,12 +25,52 @@ namespace offline (schemas + provenance: `../src/saknussemm/formats/xsd/`).
   2013-07-15 schema does not know (pinned by
   `tests/test_xsd_validation.py`). A host should SURFACE input
   violations, not refuse the document — the manifest builds fine.
-- **Output — gate.** A rewrite must never *introduce* a violation:
-  zero violations when the source was clean, no new messages when the
-  source carried a dialect. Enforced in the default test suite (the
-  identity and slow-path/rebuild cases), fully offline — the xlink
-  import inside ALTO schemas resolves to the bundled copy, never the
-  network.
+- **Output — runtime gate.** The pipeline checks the serialized XML before
+  delivering it: same root and TextLine inventory, and line readings equal
+  to those reported by the adapter and accepted by the engine. For bundled
+  namespaces it also compares XSD diagnostics against the source: a valid
+  source requires a valid output; existing dialect messages are tolerated
+  only up to their original occurrence count. This compares diagnostics,
+  not the location of each pre-existing defect. A schema error can also
+  prevent libxml from validating the remainder of a subtree: unchanged
+  diagnostics do not prove that this subtree stayed conformant. Rejected
+  files appear in `undeliverable_files`; `write()` refuses an incomplete
+  result by default.
+  A separate check rejects new dangling ALTO `REF`, `STYLEREFS`, `TAGREFS`,
+  `PROCESSINGREFS`, `IDNEXT`, `PROCESSING`, and PAGE `regionRef` references.
+  Existing defects are compared by owner, attribute and target, not only
+  their total count. An element the source left without an ID receives one
+  on rewrite; its inherited unresolved reference is not counted as new
+  damage unless the target existed in the source, an already identified
+  owner gained the reference, or more references now point at that missing
+  target. This checks target existence, not its semantic type;
+  vendor reference attributes remain outside this check. ALTO `FILEID`
+  is a string and is not treated as an XML ID reference.
+  Validation is offline. Namespaces without a bundled schema still receive
+  the XML/text checks, but **no XSD guarantee**. Direct low-level rewriter
+  calls do not run this pipeline gate.
+
+For a production workflow requiring full schema conformance, require
+`validate_bytes(output) == []` on every candidate before ingestion and use
+only namespaces with a bundled schema. A tolerant dialect round-trip is
+an explicit exception for the host to review, not a schema certification.
+Even full XSD validity does not establish text accuracy or correct boxes.
+
+## Source stability
+
+Parsers hash the same bytes they parse. At run startup the pipeline captures
+each source in memory and compares it to the parser's digest before any
+producer call. Built-in ALTO/PAGE adapters render that capture, even if the
+original path changes or disappears during correction. This retains one
+copy of all source bytes for the run and adds output parsing/validation work.
+
+The public `FormatAdapter` remains path-based. Custom adapters and subclasses
+are still invoked; their paths are checked against the capture before and
+after rewriting. A detected change withholds the file. These checks are not
+an immutable input guarantee for arbitrary custom code: hosts must keep its
+source paths stable. For host-defined XML formats, extraction and structural
+validation remain the custom adapter's responsibility; the pipeline checks
+well-formed XML, the root and the adapter's declared texts against decisions.
 
 ## API
 

@@ -56,6 +56,47 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Fixed
 
+- **Intégrité des sorties ALTO/PAGE.** La provenance ALTO 4 utilise un
+  `Processing` valide avec ID unique. Les glyphes périmés des mots modifiés
+  et les lectures agrégées périmées des régions PAGE sont supprimés et
+  comptés. PAGE détecte les déplacements de frontières même à nombre de mots
+  constant : suppression des Word en mode normal, repli en mode strict.
+  Les `TextEquiv` créés respectent l'ordre XSD et les offsets périmés des
+  régions sont invalidés avec leurs lectures agrégées.
+  Strict refuse aussi une correction avec Word sans les lectures sources
+  privées du parser, notamment après restauration JSON du manifest.
+  Le garde commun ALTO/PAGE détecte aussi un déplacement accompagné d'une
+  faute OCR (`le stcmps` → `les temps`) en comparant les coûts d'édition de
+  mots adjacents séparés et concaténés ; il reste une heuristique textuelle.
+- **Sources et octets livrés.** Les empreintes des parsers portent sur les
+  octets réellement lus. Les adaptateurs natifs réécrivent une capture
+  immuable vérifiée avant correction. Le pipeline vérifie le XML sérialisé,
+  l'inventaire des lignes, leurs textes et les diagnostics XSD des versions
+  embarquées ; une nouvelle violation retient le fichier. Les dialectes
+  déjà invalides gardent un contrôle relatif, sans certification XSD globale.
+  Les adaptateurs personnalisés conservent leur protocole Path avec contrôle
+  de stabilité avant/après ; voir `docs/format-support.md` pour les limites.
+  Les références XML sont vérifiées séparément du XSD : supprimer un Glyph
+  ou un autre élément encore référencé retient le fichier, y compris dans
+  le réécrivain ALTO direct. Les défauts préexistants sont comparés par
+  propriétaire, attribut et cible ; un défaut différent ne peut les remplacer.
+  Un `String` sans `ID` dont le style était déjà introuvable reçoit un `ID`
+  à la réécriture sans que ce défaut hérité soit compté comme nouveau :
+  seule une cible que la source déclarait, un propriétaire déjà identifié
+  qui gagne la référence, ou un nombre accru de références à la même cible
+  absente retiennent le fichier.
+- **Écriture des résultats.** `report.json` / `sidecar.json`, les noms
+  inutilisables et les collisions de casse/normalisation Unicode sont refusés
+  avant écriture. Les liens symboliques existants sont refusés ; chaque
+  fichier est remplacé atomiquement sans suivre une cible de lien. Les droits
+  d'un fichier régulier remplacé sont conservés, ceux d'un nouveau fichier
+  sont `0600`. Le nom temporaire court permet aussi l'écriture de sources
+  dont le nom approche la limite du système de fichiers. Le lot complet
+  n'est pas une transaction et le répertoire reste sous contrôle de l'appelant.
+  Un ancien `sidecar.json` est retiré lorsque le nouveau résultat n'en a plus ;
+  les autres fichiers ne sont pas effacés. Une écriture partielle refuse un
+  dossier contenant un ancien XML pour un fichier actuellement non livrable.
+
 - **Chemin lent : deux défauts de la source ne se propagent plus dans la
   géométrie ancrée**, trouvés en confrontant le rewriter à un OCR réel
   (Tesseract) corrigé par une vérité terrain dont les boîtes au mot
@@ -110,6 +151,27 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   garde ceux de la source) ; et un run fait avec un `format_adapter`
   injecté doit le repasser à `approve`. Vocabulaire des verdicts : celui
   de la démo, repris tel quel.
+- **Le résolveur de géométrie du chemin lent est joignable par le pipeline
+  public.** `rewrite_alto_file(word_geometry=…)` existait depuis le
+  2026-09-22 ; `AltoFormatAdapter` ne le transmettait pas et
+  `CorrectionPipeline` ne l'exposait pas, donc brancher le résolveur CTC de
+  hans demandait d'écrire son propre adaptateur (contre-revue du 7/10/2026).
+  Deux routes désormais : `AltoFormatAdapter(word_geometry=…)` — la
+  troisième couture garde sa porte, `CorrectionPipeline` ne gagne aucun
+  bouton — et `correct(…, word_geometry=…)` / `correct_sync`, où la façade
+  dérive l'adaptateur du format du document et refuse avant tout travail
+  un document PAGE (le réécrivain PAGE n'a pas de chemin lent géométrique).
+  Un run sans résolveur reste identique à l'octet.
+  `RewriteResult.geometry_tiers` nomme, par ligne du chemin lent, le niveau
+  qui a dessiné les boîtes — `resolver:<nom>`, `anchored`,
+  `anchored_supposed`, `proportional`, `none` — et le rapport le porte
+  (`ProjectionStage.geometry_tier`, additif et optionnel, comme
+  `rewriter_path`) pour qu'un hôte sache combien le résolveur a réellement
+  servi. Un résolveur qui lève ou répond l'inadmissible n'est pas nommé :
+  le niveau dit qui a dessiné, pas qui a été essayé. Le fichier le dit aussi :
+  l'étape de traitement ajoute `; word geometry by <nom>` quand un résolveur
+  a dessiné des boîtes, puisque deux runs du même producteur sous la même
+  empreinte de configuration peuvent différer par ce tiers.
 
 - **Un résolveur en dernier recours est aussi interrogé quand la page a dû
   supposer.** `last_resort = True` ne le sollicitait que si la géométrie

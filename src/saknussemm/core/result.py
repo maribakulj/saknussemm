@@ -8,6 +8,9 @@ execution control.
 from __future__ import annotations
 
 import json
+import stat
+import tempfile
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +22,37 @@ from saknussemm.core.editing import EditScript
 from saknussemm.core.hyphenation import ReconcileMetrics
 from saknussemm.core.report import _build_final_edit_script
 from saknussemm.core.schemas import CorrectionReport, LineTrace, Usage
+
+
+def _portable_filename(name: str) -> str:
+    """One filename identity for case-insensitive and Unicode-normalizing disks."""
+    return unicodedata.normalize("NFD", name).casefold()
+
+
+def _replace_output(path: Path, content: bytes) -> None:
+    """Replace one directory entry without ever opening its previous target.
+
+    The preflight refuses existing links. Replacement also protects against
+    a link installed after that check: it replaces the link itself, without
+    writing to the file it names. This is atomic per file, not per result.
+    """
+    try:
+        previous = path.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        previous = None
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent, prefix=".saknussemm-", suffix=".tmp", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        if previous is not None and stat.S_ISREG(previous.st_mode):
+            temporary.chmod(stat.S_IMODE(previous.st_mode))
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 @dataclass
@@ -139,18 +173,34 @@ class CorrectionResult:
         seen: dict[str, str] = {}
         for source_name in self.corrected_files:
             flattened = Path(source_name).name
-            if flattened in seen:
+            if flattened in {"", ".", ".."}:
                 raise ConfigurationError(
-                    f"{source_name!r} and {seen[flattened]!r} would both be "
-                    f"written as {flattened!r}, so one would overwrite the "
-                    "other. `write` flattens directory parts on purpose — a "
+                    f"{source_name!r} has no usable output filename. "
+                    "Each source must name a file, not a directory."
+                )
+            # Conservative across filesystems: names must remain distinct
+            # under both Unicode decomposition and case-insensitive lookup.
+            portable_name = _portable_filename(flattened)
+            # Reserve both names even when this run has no sidecar, and on
+            # case-insensitive filesystems as well as case-sensitive ones.
+            if portable_name in {"report.json", "sidecar.json"}:
+                raise ConfigurationError(
+                    f"{source_name!r} would be written as {flattened!r}, which "
+                    "is reserved for result metadata. Rename the source or "
+                    "persist `corrected_files` with your own writer."
+                )
+            if portable_name in seen:
+                raise ConfigurationError(
+                    f"{source_name!r} and {seen[portable_name]!r} have colliding "
+                    "output filenames, so one could overwrite the other. "
+                    "`write` flattens directory parts on purpose — a "
                     "source name must not steer the write outside the target "
                     "directory — so distinct sources need distinct file "
                     "names. Write them to separate directories, or persist "
                     "`corrected_files` yourself: the engine has no writer and "
                     "this method is a convenience."
                 )
-            seen[flattened] = source_name
+            seen[portable_name] = source_name
 
     def _refuse_partial_write(self, allow_partial: bool) -> None:
         """A volume missing a file must not reach disk by omission.
@@ -198,6 +248,22 @@ class CorrectionResult:
         The report is written either way once the call is allowed, so what
         is missing is on disk beside what is not.
 
+        Source basenames ``report.json`` and ``sidecar.json`` are reserved
+        (case-insensitively). Empty names and directory names are refused;
+        names must remain distinct after Unicode decomposition and case
+        folding, conservatively on every filesystem. Existing symbolic
+        links at output filenames are refused before any write. Regular
+        files are replaced, one at a time; this is not a transaction for
+        the whole result. The caller
+        must control the destination directory throughout the call. New
+        files use private permissions (0600); replacing a regular file
+        preserves its permission bits.
+
+        An obsolete sidecar.json is removed when the current sidecar is
+        empty. A partial write refuses an existing path named for a withheld
+        source, since its old XML could be mistaken for a current result.
+        Other files are never removed; use a new directory for each run.
+
         ADR-011 — a caller-side convenience, not engine behaviour: the
         engine only computes values. Hosts that own a file transaction
         (commit/discard staging) keep their injected writer instead.
@@ -205,32 +271,56 @@ class CorrectionResult:
         target = Path(directory)
         self._refuse_partial_write(allow_partial)
         self._refuse_colliding_names()
-        target.mkdir(parents=True, exist_ok=True)
-        written: list[Path] = []
-        for source_name, xml_bytes in self.corrected_files.items():
-            # Strip any directory part: the key names a source FILE and
-            # must not steer the write outside ``directory``.
-            path = target / Path(source_name).name
-            path.write_bytes(xml_bytes)
-            written.append(path)
-        report_path = target / "report.json"
-        report_path.write_text(self.report.model_dump_json(indent=2), encoding="utf-8")
-        written.append(report_path)
+        # Strip directory parts: a source name must not steer a write out
+        # of the destination. Serialize metadata before writing anything.
+        outputs = {
+            target / Path(name).name: content
+            for name, content in self.corrected_files.items()
+        }
+        outputs[target / "report.json"] = self.report.model_dump_json(indent=2).encode(
+            "utf-8"
+        )
         # refused-but-preserved corrections as their own small
         # artefact for review tooling (they are ALSO inside report.json;
         # this is the convenience view, written only when non-empty).
         if self.report.sidecar:
-            sidecar_path = target / "sidecar.json"
-            sidecar_path.write_text(
-                json.dumps(
-                    [entry.model_dump(mode="json") for entry in self.report.sidecar],
-                    indent=2,
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
+            outputs[target / "sidecar.json"] = json.dumps(
+                [entry.model_dump(mode="json") for entry in self.report.sidecar],
+                indent=2,
+                ensure_ascii=False,
+            ).encode("utf-8")
+        sidecar_path = target / "sidecar.json"
+        output_names = {_portable_filename(path.name) for path in outputs}
+        existing_names = (
+            {_portable_filename(path.name) for path in target.iterdir()}
+            if self.undeliverable_files and target.is_dir()
+            else set()
+        )
+        for source_name in self.undeliverable_files:
+            withheld_path = target / Path(source_name).name
+            if _portable_filename(withheld_path.name) in output_names | existing_names:
+                raise ConfigurationError(
+                    f"Refusing to leave {str(withheld_path)!r} beside the report: "
+                    "this source is undeliverable in the current run. "
+                    "Use a new destination directory for a partial result."
+                )
+        for path in outputs.keys() | {sidecar_path}:
+            if path.is_symlink():
+                raise ConfigurationError(
+                    f"Refusing to write {str(path)!r}: the output is a symbolic link. "
+                    "Use a destination containing only regular output files."
+                )
+        if sidecar_path.exists() and not sidecar_path.is_file():
+            raise ConfigurationError(
+                f"Refusing to replace or remove {str(sidecar_path)!r}: "
+                "sidecar.json is not a regular file."
             )
-            written.append(sidecar_path)
-        return written
+        target.mkdir(parents=True, exist_ok=True)
+        for path, content in outputs.items():
+            _replace_output(path, content)
+        if not self.report.sidecar:
+            sidecar_path.unlink(missing_ok=True)
+        return list(outputs)
 
 
 def _build_correction_result(

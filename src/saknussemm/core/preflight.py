@@ -33,6 +33,7 @@ from saknussemm.core.protocols import (
     require_page_images,
 )
 from saknussemm.core.schemas import DocumentManifest, PageImage, PageManifest
+from saknussemm.core.sources import SourceSnapshot
 from saknussemm.errors import ConfigurationError, ParseError
 
 
@@ -75,34 +76,21 @@ def _require_every_source(
     )
 
 
-def _require_the_same_bytes(
+def _snapshot_sources(
     document_manifest: DocumentManifest,
     source_files: dict[str, Path],
-) -> None:
-    """Each path must still hold the bytes its pages were parsed from.
+) -> dict[str, SourceSnapshot]:
+    """Capture the exact bytes the built-in adapters will render.
 
-    The parser stamps a digest per file; this compares it to what is on
-    disk now. Refusing here rather than at render is the whole gain: no
-    producer call is spent on a document that cannot be written back
-    honestly.
-
-    What it catches, both measured 2026-08-17 — see
-    `DocumentManifest.source_digests` for why neither was visible before:
-    a mapping that names the wrong path for a name (one file's decided text
-    delivered inside another file's tree, run reporting success), and a
-    file replaced between the parse and the write.
-
-    A manifest with no digests is not checked: it was not built by a parser
-    of this library, so there is nothing to compare against and nothing is
-    claimed. Hand-built manifests are a supported shape.
+    A parser's digest must match this capture before any producer is called.
+    Keeping the verified bytes closes the gap between that check and a
+    later reopen after correction. Hand-built manifests have no digest to
+    compare, but still render and attest the captured bytes.
     """
     stamped = document_manifest.source_digests
-    if not stamped:
-        return
     changed: list[str] = []
+    snapshots: dict[str, SourceSnapshot] = {}
     for name, path in sorted(source_files.items()):
-        if name not in stamped:
-            continue
         # A source that has become unreadable is a §8.4 event, not a
         # configuration one, and reading it here must not be the one place
         # that lets an OSError out raw — which is exactly what the first
@@ -111,7 +99,8 @@ def _require_the_same_bytes(
             raw = path.read_bytes()
         except OSError as exc:
             raise ParseError(f"{name!r}: cannot read source file: {exc}") from exc
-        if source_digest(raw) != stamped[name]:
+        snapshots[name] = SourceSnapshot(path, raw)
+        if name in stamped and source_digest(raw) != stamped[name]:
             changed.append(name)
     if changed:
         raise ConfigurationError(
@@ -123,6 +112,7 @@ def _require_the_same_bytes(
             "artefact to the decisions the artefact was built from. Re-parse "
             "the current bytes, or point at the files that were parsed."
         )
+    return snapshots
 
 
 def _preflight(
@@ -134,9 +124,8 @@ def _preflight(
     source_files: dict[str, Path],
     page_images: dict[str, PageImage] | None,
     ctx: RunContext,
-) -> None:
-    """Refuse a run that cannot honestly proceed. Mutates ``ctx`` with the
-    per-page image envelope it validated."""
+) -> dict[str, SourceSnapshot]:
+    """Validate the run, populate its image envelope and capture its sources."""
     # The manifest says which files it was parsed from; `source_files`
     # says which ones will be rewritten. Nothing compared the two, and
     # this function could not: it did not receive `source_files` at all.
@@ -150,7 +139,6 @@ def _preflight(
     # An empty mapping stays legal and means "decide, render nothing": the
     # dry run is a documented mode, and five test files rely on it.
     _require_every_source(document_manifest, source_files)
-    _require_the_same_bytes(document_manifest, source_files)
     # §5.1 — a vision producer without its images is a start-up error,
     # never a silent image-less call.
     require_page_images(producer, document_manifest.pages, page_images)
@@ -210,3 +198,4 @@ def _preflight(
         page.page_id: (page.page_width, page.page_height)
         for page in document_manifest.pages
     }
+    return _snapshot_sources(document_manifest, source_files)

@@ -83,6 +83,9 @@ class LineTrace(BaseModel):
     # Diagnostic metadata
     hyphen_role: str | None = None
     rewriter_path: str | None = None  # untouched / subs_only / fast_path / slow_path
+    #: Slow-path lines only: which tier drew the word boxes (see
+    #: ``RewriteResult.geometry_tiers``).
+    geometry_tier: str | None = None
     #: This line's share of the rewrite's granularity losses
     #: (e.g. ``{"words_dropped": 4}``), ``None`` when its rewrite lost
     #: nothing; surfaces on the report's projection stage.
@@ -184,6 +187,12 @@ class ProjectionStage(BaseModel):
     #: library writes PAGE too, the name was wrong.
     extracted_text: str | None = None
     rewriter_path: str | None = None  # untouched / subs_only / fast_path / slow_path
+    #: ``slow_path`` lines only: ``resolver:<name>`` (an injected
+    #: WordGeometryResolver drew the boxes), ``anchored`` (the page's own
+    #: kept boxes), ``anchored_supposed`` (anchored, with a box it had to
+    #: suppose), ``proportional`` (the pixel-blind fallback) or ``none``.
+    #: Additive and optional, like ``losses``.
+    geometry_tier: str | None = None
     #: ADR-012 — THIS line's granularity losses (e.g.
     #: ``{"words_dropped": 4}``): the per-decision attribution of the
     #: run-level ``CorrectionReport.format_losses`` aggregate. Absent

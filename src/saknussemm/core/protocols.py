@@ -408,6 +408,17 @@ class RewriteResult:
     #: that line's own loss counters (only lines that lost something
     #: appear). Summing the values reproduces ``losses``.
     losses_by_line: dict[str, dict[str, int]] = field(default_factory=dict)
+    #: Slow-path lines only: line_id → which tier drew the word boxes.
+    #: ``"resolver:<name>"`` (the injected WordGeometryResolver answered),
+    #: ``"anchored"`` (the page's own kept boxes), ``"anchored_supposed"``
+    #: (anchored, but it had to suppose an inserted word or a scrap),
+    #: ``"proportional"`` (the pixel-blind fallback) or ``"none"`` (the
+    #: line was emptied: nothing to draw). Empty for formats
+    #: without a geometric slow path. A host that wants to know how much
+    #: a resolver was actually used reads this; before it existed, the
+    #: method really used and its fallbacks were invisible (contre-revue
+    #: du 7/10/2026).
+    geometry_tiers: dict[str, str] = field(default_factory=dict)
 
 
 @runtime_checkable
