@@ -41,6 +41,7 @@ async def _render_outputs(
     source_files: dict[str, Path],
     traces: dict[LineRef, LineTrace],
     decisions: DecisionSet,
+    word_geometry: object | None = None,
 ) -> RenderOutcome:
     """Rewrite corrected files in memory and update the traces.
 
@@ -80,7 +81,9 @@ async def _render_outputs(
             # importing any core module never loads lxml.
             from saknussemm.formats.loader import adapter_for_format
 
-            adapter = adapter_for_format(document_manifest.source_format)
+            adapter = adapter_for_format(
+                document_manifest.source_format, word_geometry=word_geometry
+            )
 
         try:
             result, fidelity_by_lid = await _rewrite_and_verify(

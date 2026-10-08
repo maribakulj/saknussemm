@@ -40,6 +40,19 @@ dropped attribute surfaces on `CorrectionReport.format_losses` as
 losses. The fast/untouched paths edit in place and preserve these
 attributes.
 
+### Word geometry on the slow path
+
+When a correction changes the word count, the line's `String` boxes are
+redrawn by the first of three tiers that answers: an injected
+`WordGeometryResolver` (asked first, or only as a `last_resort`), the
+page's own kept boxes with letter widths learned on that file (`anchored`,
+`anchored_supposed` when it had to invent a box for an inserted word), then
+the character-proportional fallback. The resolver is reached through
+`AltoFormatAdapter(word_geometry=…)`, `CorrectionPipeline(word_geometry=…)`
+or `correct(…, word_geometry=…)`; its answer is validated before it reaches
+the tree. `RewriteResult.geometry_tiers` records, per slow-path line, which
+tier drew it. PAGE has no such seam (below).
+
 ## PAGE (`saknussemm.formats.page`)
 
 PRImA PAGE — the native format of Transkribus and eScriptorium; dated

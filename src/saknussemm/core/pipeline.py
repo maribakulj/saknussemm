@@ -31,6 +31,7 @@ from typing import Any
 from pathlib import Path
 
 from saknussemm.errors import (
+    ConfigurationError,
     CorrectionAborted,
 )
 from saknussemm.core import events as ev
@@ -53,6 +54,7 @@ from saknussemm.core.provenance import (
     digests_of_the_bytes_decided_on,
 )
 from saknussemm.core.protocols import (
+    WordGeometryResolver,
     EditProducer,
     FormatAdapter,
     PipelineObserver,
@@ -123,6 +125,7 @@ class CorrectionPipeline:
         qe_scorer: QEScorer | None = None,
         routing_policy: RoutingPolicy | None = None,
         escalation_producer: EditProducer | None = None,
+        word_geometry: WordGeometryResolver | None = None,
     ) -> None:
         self.producer = producer
         self.observer = observer
@@ -182,6 +185,18 @@ class CorrectionPipeline:
         # injected adapter that contradicts that format is refused at
         # run start. There is no implicit default format.
         self.format_adapter = format_adapter
+        # The slow path's resolver seam (WordGeometryResolver), reachable
+        # without writing an adapter: the derived ALTO adapter carries it.
+        # Exclusive with an injected adapter, which is where a resolver
+        # would otherwise be set; refused for a PAGE document at run
+        # start (no geometric slow path there).
+        if word_geometry is not None and format_adapter is not None:
+            raise ConfigurationError(
+                "give word_geometry OR a format_adapter, not both: an injected "
+                "adapter carries its own resolver (AltoFormatAdapter("
+                "word_geometry=...))"
+            )
+        self.word_geometry = word_geometry
         # §11 — provenance identity stamped into the corrected XML's
         # processingStep (ProducerMetadata replaces the bare
         # provider_name/model strings — a rules producer has no "model").
@@ -408,6 +423,16 @@ class CorrectionPipeline:
         # the instance.
         ctx = RunContext(should_abort=should_abort)
 
+        if self.word_geometry is not None and document_manifest.source_format not in (
+            None,
+            "alto",
+        ):
+            raise ConfigurationError(
+                f"word_geometry was given but the manifest was parsed as "
+                f"{document_manifest.source_format!r}: only the ALTO rewriter "
+                "has a geometric slow path to hand a resolver"
+            )
+
         _preflight(
             producer=self.producer,
             escalation_producer=self.escalation_producer,
@@ -445,6 +470,7 @@ class CorrectionPipeline:
 
         render = await _render_outputs(
             format_adapter=self.format_adapter,
+            word_geometry=self.word_geometry,
             producer_metadata=self.producer_metadata,
             config_fingerprint=self.config_fingerprint(),
             emit=self._emit,

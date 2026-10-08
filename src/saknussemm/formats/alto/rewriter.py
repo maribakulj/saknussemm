@@ -252,6 +252,18 @@ def _resolve_geometry(
 ) -> list[tuple[str, int, int]]:
     """The first usable geometry of: the resolver's, the anchored, the proportional.
 
+    See :func:`_resolve_geometry_with_tier` for which tier answered.
+    """
+    return _resolve_geometry_with_tier(resolver, request, anchors)[0]
+
+
+def _resolve_geometry_with_tier(
+    resolver: WordGeometryResolver | None,
+    request: LineGeometryRequest,
+    anchors: LineAnchors | None,
+) -> tuple[list[tuple[str, int, int]], str]:
+    """The first usable geometry of: the resolver's, the anchored, the proportional.
+
     Three tiers, each validated by ``_geometry_is_usable`` and each falling
     through to the next on any failure -- no resolver, a resolver that
     raises or answers nonsense, a line the anchored layout cannot draw --
@@ -281,10 +293,11 @@ def _resolve_geometry(
     """
     tokens = list(request.tokens)
     last_resort = getattr(resolver, "last_resort", False)
+    resolver_tier = f"resolver:{getattr(resolver, 'name', 'resolver')}"
     if resolver is not None and not last_resort:
         geo = _ask_resolver(resolver, request, tokens)
         if geo is not None:
-            return geo
+            return geo, resolver_tier
 
     anchored: AnchoredLayout | None = None
     if anchors is not None:
@@ -299,18 +312,18 @@ def _resolve_geometry(
         ):
             anchored = layout
     if anchored is not None and not (last_resort and anchored.guessed):
-        return anchored
+        return anchored, ("anchored_supposed" if anchored.guessed else "anchored")
 
     # The page could not answer, or answered by supposing (an inserted
     # word, a run grown out of a scrap): that is what a last resort is for.
     if resolver is not None and last_resort:
         geo = _ask_resolver(resolver, request, tokens)
         if geo is not None:
-            return geo
+            return geo, resolver_tier
 
     if anchored is not None:
-        return anchored
-    return _compute_geometry(request.hpos, request.width, tokens)
+        return anchored, "anchored_supposed"
+    return _compute_geometry(request.hpos, request.width, tokens), "proportional"
 
 
 def _ask_resolver(
@@ -1094,6 +1107,7 @@ def _rebuild_line(
     word_geometry: WordGeometryResolver | None = None,
     image: object | None = None,
     widths: DocWidths | None = None,
+    geometry_tiers: dict[str, str] | None = None,
 ) -> tuple[dict[str, int], bool]:
     """Slow-path rebuild for any TextLine (normal, PART1, BOTH, PART2).
 
@@ -1229,11 +1243,13 @@ def _rebuild_line(
         if "ID" in orig_string_attribs[i]
     }
 
-    geo = _resolve_geometry(
+    geo, tier = _resolve_geometry_with_tier(
         word_geometry,
         _geometry_request(manifest, hpos, vpos, text_width, height, tokens, image),
         _line_anchors(orig_string_attribs, alignment, width_model),
     )
+    if geometry_tiers is not None:
+        geometry_tiers[manifest.line_id] = tier
     str_n = sp_n = 0
     last_word_hpos = hpos
     last_word_width = hyp_width
@@ -1344,7 +1360,13 @@ def rewrite_alto_file(
         lm.line_id: lm for page in page_manifests for lm in page.lines
     }
 
-    redraw = partial(_rebuild_line, word_geometry=word_geometry, widths=DocWidths(root))
+    geometry_tiers: dict[str, str] = {}
+    redraw = partial(
+        _rebuild_line,
+        word_geometry=word_geometry,
+        widths=DocWidths(root),
+        geometry_tiers=geometry_tiers,
+    )
     seen_element_ids: set[str] = set()
     textline_tag = _tag("TextLine", ns)
     for tl_el in root.iter(textline_tag):
@@ -1450,6 +1472,7 @@ def rewrite_alto_file(
         losses=losses,
         losses_by_line=losses_by_line,
         word_order_suspected=frozenset(word_order_suspected),
+        geometry_tiers=geometry_tiers,
     )
 
 

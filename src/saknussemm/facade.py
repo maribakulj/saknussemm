@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from saknussemm.core.pipeline import CorrectionPipeline, CorrectionResult
-from saknussemm.core.protocols import EditProducer
+from saknussemm.core.protocols import EditProducer, WordGeometryResolver
 from saknussemm.core.schemas import DocumentManifest, PageImage
 from saknussemm.errors import ParseError
 from saknussemm.formats.loader import build_document_manifest
@@ -85,8 +85,12 @@ async def correct(
     run_id: str | None = None,
     should_abort: Callable[[], bool] | None = None,
     page_images: dict[str, PageImage] | None = None,
+    word_geometry: WordGeometryResolver | None = None,
 ) -> CorrectionResult:
     """Run the correction pipeline over a loaded document (§2).
+
+    ``word_geometry``: a resolver for the ALTO slow path's word boxes
+    (hans's CTC resolver, say); see :class:`WordGeometryResolver`.
 
     Wraps a default :class:`CorrectionPipeline` (no-op observer, default
     policies, provenance from the producer's own declared metadata)
@@ -94,7 +98,9 @@ async def correct(
     metadata — lives on the pipeline constructor for callers who need
     it; this function is the three-line path, not a second surface.
     """
-    pipeline = CorrectionPipeline(producer=producer, observer=_NullObserver())
+    pipeline = CorrectionPipeline(
+        producer=producer, observer=_NullObserver(), word_geometry=word_geometry
+    )
     return await pipeline.run(
         document_manifest=document.manifest,
         source_files=document.source_paths,
@@ -111,13 +117,16 @@ def correct_sync(
     run_id: str | None = None,
     should_abort: Callable[[], bool] | None = None,
     page_images: dict[str, PageImage] | None = None,
+    word_geometry: WordGeometryResolver | None = None,
 ) -> CorrectionResult:
     """Synchronous twin of :func:`correct` (scripts, notebooks, CLIs).
 
     Must not be called from within a running event loop — use
     ``await saknussemm.correct(...)`` there.
     """
-    pipeline = CorrectionPipeline(producer=producer, observer=_NullObserver())
+    pipeline = CorrectionPipeline(
+        producer=producer, observer=_NullObserver(), word_geometry=word_geometry
+    )
     return pipeline.run_sync(
         document_manifest=document.manifest,
         source_files=document.source_paths,
