@@ -95,9 +95,21 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   personne n'a jugée n'est pas livrée comme approuvée : elle revient au
   texte source (`human: unreviewed`) et figure sur
   `ApprovedResult.unreviewed` ; `unreviewed="deliver"` garde le candidat.
-  Le manifeste de l'appelant n'est pas modifié ; la provenance du fichier
-  nomme la relecture (`<producteur>+human-review`). Vocabulaire des
-  verdicts : celui de la démo, repris tel quel.
+  Une unité de césure reste une seule chose (ADR-010) : un membre refusé
+  ou non relu ramène toute l'unité à la source (`human: unit atomicity` sur
+  les membres entraînés), et `transcribed` sur un membre est refusé avant
+  tout rendu. Refusés aussi avant rendu : deux jugements sur une ligne, et
+  un résultat dont les décisions ne portent pas sur le texte source de ce
+  document. `approve` est une coroutine (un hôte web l'attend) ;
+  `approve_sync` est son double synchrone. Le résultat porte les traces du
+  run avec la projection de ce rendu (texte livré, fidélité, pertes) et
+  les verdicts appliqués. Le manifeste de l'appelant n'est pas modifié ;
+  la provenance du fichier nomme la relecture (`<producteur>+human-review`).
+  Non reproduit : l'état de césure que le run a écrit sur sa copie privée
+  (une paire retombée y avait ses SUBS neutralisés ; le fichier approuvé
+  garde ceux de la source) ; et un run fait avec un `format_adapter`
+  injecté doit le repasser à `approve`. Vocabulaire des verdicts : celui
+  de la démo, repris tel quel.
 
 - **Un résolveur en dernier recours est aussi interrogé quand la page a dû
   supposer.** `last_resort = True` ne le sollicitait que si la géométrie
