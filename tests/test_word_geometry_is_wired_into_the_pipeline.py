@@ -17,7 +17,7 @@ from lxml import etree
 from saknussemm import CorrectionPipeline
 from saknussemm.core.protocols import LineGeometryRequest, TokenBox
 from saknussemm.errors import ConfigurationError
-from saknussemm.facade import _NullObserver, correct_sync, load
+from saknussemm.facade import correct_sync, load
 from saknussemm.formats.alto.adapter import AltoFormatAdapter
 from saknussemm.formats.alto.parser import build_document_manifest as build_alto
 from saknussemm.formats.page.parser import build_document_manifest as build_page
@@ -38,6 +38,13 @@ PAGE = """<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/201
 <TextRegion id="r1"><Coords points="0,0 1000,0 1000,40 0,40"/>
 <TextLine id="l1"><Coords points="100,20 400,20 400,60 100,60"/>
 <TextEquiv><Unicode>dela</Unicode></TextEquiv></TextLine></TextRegion></Page></PcGts>"""
+
+
+class _Silent:
+    """An event sink that keeps nothing: these tests read the artefact."""
+
+    def on_event(self, event_type: str, payload: dict[str, object]) -> None:
+        pass
 
 
 class _Pinned:
@@ -83,7 +90,7 @@ def test_the_adapter_carries_the_resolver(tmp_path: Path) -> None:
     resolver = _Pinned()
     pipeline = CorrectionPipeline(
         producer=_producer(),
-        observer=_NullObserver(),
+        observer=_Silent(),
         format_adapter=AltoFormatAdapter(word_geometry=resolver),
     )
     result = pipeline.run_sync(
@@ -99,7 +106,7 @@ def test_the_pipeline_exposes_the_resolver_without_an_adapter(tmp_path: Path) ->
     resolver = _Pinned()
     pipeline = CorrectionPipeline(
         producer=_producer(),
-        observer=_NullObserver(),
+        observer=_Silent(),
         word_geometry=resolver,
     )
     result = pipeline.run_sync(
@@ -122,7 +129,7 @@ def test_a_resolver_and_an_adapter_together_are_refused() -> None:
     with pytest.raises(ConfigurationError, match="not both"):
         CorrectionPipeline(
             producer=_producer(),
-            observer=_NullObserver(),
+            observer=_Silent(),
             format_adapter=AltoFormatAdapter(),
             word_geometry=_Pinned(),
         )
@@ -134,7 +141,7 @@ def test_a_resolver_on_a_page_document_is_refused_at_run_start(tmp_path: Path) -
     resolver = _Pinned()
     pipeline = CorrectionPipeline(
         producer=_producer(),
-        observer=_NullObserver(),
+        observer=_Silent(),
         word_geometry=resolver,
     )
     with pytest.raises(ConfigurationError, match="PAGE|page"):
