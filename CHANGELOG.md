@@ -80,6 +80,11 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   ou un autre élément encore référencé retient le fichier, y compris dans
   le réécrivain ALTO direct. Les défauts préexistants sont comparés par
   propriétaire, attribut et cible ; un défaut différent ne peut les remplacer.
+  Un `String` sans `ID` dont le style était déjà introuvable reçoit un `ID`
+  à la réécriture sans que ce défaut hérité soit compté comme nouveau :
+  seule une cible que la source déclarait, un propriétaire déjà identifié
+  qui gagne la référence, ou un nombre accru de références à la même cible
+  absente retiennent le fichier.
 - **Écriture des résultats.** `report.json` / `sidecar.json`, les noms
   inutilisables et les collisions de casse/normalisation Unicode sont refusés
   avant écriture. Les liens symboliques existants sont refusés ; chaque

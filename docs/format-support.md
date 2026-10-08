@@ -39,7 +39,11 @@ namespace offline (schemas + provenance: `../src/saknussemm/formats/xsd/`).
   A separate check rejects new dangling ALTO `REF`, `STYLEREFS`, `TAGREFS`,
   `PROCESSINGREFS`, `IDNEXT`, `PROCESSING`, and PAGE `regionRef` references.
   Existing defects are compared by owner, attribute and target, not only
-  their total count. This checks target existence, not its semantic type;
+  their total count. An element the source left without an ID receives one
+  on rewrite; its inherited unresolved reference is not counted as new
+  damage unless the target existed in the source, an already identified
+  owner gained the reference, or more references now point at that missing
+  target. This checks target existence, not its semantic type;
   vendor reference attributes remain outside this check. ALTO `FILEID`
   is a string and is not treated as an XML ID reference.
   Validation is offline. Namespaces without a bundled schema still receive

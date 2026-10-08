@@ -16,7 +16,7 @@ from saknussemm.core.protocols import FormatAdapter, RewriteResult
 from saknussemm.core.schemas import PageManifest
 from saknussemm.errors import ParseError, ProjectionError
 from saknussemm.formats._references import (
-    dangling_references,
+    reference_baseline,
     require_no_new_dangling_references,
 )
 from saknussemm.formats._xml import (
@@ -118,7 +118,7 @@ class SnapshotAdapter:
             # The format seam also serves host-defined formats. Their text
             # extraction belongs to the injected adapter, never to PAGE.
             return
-        require_no_new_dangling_references(output, dangling_references(source))
+        require_no_new_dangling_references(output, reference_baseline(source))
         ns = detect_namespace(source)
         id_attr = "ID" if root_name == "alto" else "id"
         source_lines = Counter(

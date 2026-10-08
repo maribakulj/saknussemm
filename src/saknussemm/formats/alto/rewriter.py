@@ -31,7 +31,7 @@ from saknussemm.formats.alto._ns import (
 )
 from saknussemm.formats._xml import read_source_tree_classified
 from saknussemm.formats._references import (
-    dangling_references,
+    reference_baseline,
     require_no_new_dangling_references,
 )
 from saknussemm.formats.alto._geometry import (
@@ -1294,7 +1294,7 @@ def rewrite_alto_file(
     tree = read_source_tree_classified(xml_path, source_bytes=_source_bytes)
     root = tree.getroot()
     ns = _detect_namespace(root)
-    source_references = dangling_references(root)
+    source_references = reference_baseline(root)
     metrics = RewriterMetrics()
     line_paths: dict[str, str] = {}
     losses: dict[str, int] = {}
