@@ -1414,7 +1414,15 @@ def rewrite_alto_file(
         if move_suspected:
             word_order_suspected.add(line_id)
 
-    _add_processing_entry(root, ns, provider, model, lib_version, config_fingerprint)
+    _add_processing_entry(
+        root,
+        ns,
+        provider,
+        model,
+        lib_version,
+        config_fingerprint,
+        resolver=word_geometry,
+    )
     require_no_new_dangling_references(root, source_references)
     # pretty_print=False: avoid gratuitously reformatting the entire XML
     # (whitespace between elements) when the user only changed CONTENT on a

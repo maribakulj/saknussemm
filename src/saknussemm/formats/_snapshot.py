@@ -70,13 +70,25 @@ class SnapshotAdapter:
     ) -> RewriteResult:
         # Exact types matter: a subclass may override rewrite_file. Bypassing
         # that override would silently remove the caller's adapter behavior.
-        if type(self._adapter) in (AltoFormatAdapter, PageFormatAdapter):
-            rewrite = (
-                rewrite_alto_file
-                if type(self._adapter) is AltoFormatAdapter
-                else rewrite_page_file
+        if (
+            isinstance(self._adapter, AltoFormatAdapter)
+            and type(self._adapter) is AltoFormatAdapter
+        ):
+            # The adapter's resolver travels with it (PR #179): rendering
+            # from the captured bytes must not drop the word-geometry seam
+            # the public adapter carries.
+            result = rewrite_alto_file(
+                xml_path,
+                pages,
+                provider,
+                model,
+                lib_version=lib_version,
+                config_fingerprint=config_fingerprint,
+                word_geometry=self._adapter.word_geometry,
+                _source_bytes=self._source_bytes,
             )
-            result = rewrite(
+        elif type(self._adapter) is PageFormatAdapter:
+            result = rewrite_page_file(
                 xml_path,
                 pages,
                 provider,
