@@ -1300,6 +1300,21 @@ def _rebuild_line(
 # ---------------------------------------------------------------------------
 
 
+def _record_losses(
+    losses_by_line: dict[str, dict[str, int]],
+    losses: dict[str, int],
+    line_id: str,
+    line_losses: dict[str, int],
+) -> None:
+    """Attribute a line's losses (ADR-012) and roll them into the run
+    aggregate. One site, so the two can never disagree."""
+    if not line_losses:
+        return
+    losses_by_line[line_id] = {**losses_by_line.get(line_id, {}), **line_losses}
+    for key, value in line_losses.items():
+        losses[key] = losses.get(key, 0) + value
+
+
 def rewrite_alto_file(
     xml_path: Path,
     page_manifests: list[PageManifest],
@@ -1334,17 +1349,7 @@ def rewrite_alto_file(
     losses_by_line: dict[str, dict[str, int]] = {}
     word_order_suspected: set[str] = set()
 
-    def record(line_id: str, line_losses: dict[str, int]) -> None:
-        """Attribute a line's losses (ADR-012) and roll them into the run
-        aggregate. One site, so the two can never disagree."""
-        if not line_losses:
-            return
-        losses_by_line[line_id] = {
-            **losses_by_line.get(line_id, {}),
-            **line_losses,
-        }
-        for key, value in line_losses.items():
-            losses[key] = losses.get(key, 0) + value
+    record = partial(_record_losses, losses_by_line, losses)
 
     # ADR-007 — a bare line_id keys every correction-to-element
     # association below. A duplicate (in the manifests OR on the XML
@@ -1430,7 +1435,15 @@ def rewrite_alto_file(
         if move_suspected:
             word_order_suspected.add(line_id)
 
-    _add_processing_entry(root, ns, provider, model, lib_version, config_fingerprint)
+    _add_processing_entry(
+        root,
+        ns,
+        provider,
+        model,
+        lib_version,
+        config_fingerprint,
+        resolver=word_geometry,
+    )
     # pretty_print=False: avoid gratuitously reformatting the entire XML
     # (whitespace between elements) when the user only changed CONTENT on a
     # handful of lines. Users comparing source vs. output should see only
@@ -1513,8 +1526,14 @@ def _add_processing_entry(
     model: str,
     lib_version: str | None = None,
     config_fingerprint: str | None = None,
+    resolver: WordGeometryResolver | None = None,
 ) -> None:
     """Record a ``processingStep`` documenting the correction pass (§11).
+
+    ``resolver``: the injected word-geometry resolver, if any. It changes
+    the bytes of every slow-path line, so the step names it: two runs of
+    the same producer under the same policy fingerprint can still differ
+    by the third party that drew their boxes.
 
     Beyond the provider/model already written, the step now carries the
     **library version** and a **configuration fingerprint** (§8.2) so a
@@ -1537,7 +1556,11 @@ def _add_processing_entry(
     if desc is None:
         return
     description = _provenance_description(
-        provider, model, lib_version, config_fingerprint
+        provider,
+        model,
+        lib_version,
+        config_fingerprint,
+        resolver=getattr(resolver, "name", None) if resolver is not None else None,
     )
 
     processing = desc.find(_tag("Processing", ns))
@@ -1560,6 +1583,7 @@ def _provenance_description(
     model: str,
     lib_version: str | None,
     config_fingerprint: str | None,
+    resolver: str | None = None,
 ) -> str:
     """The human-readable provenance line shared by every ALTO container."""
     provenance = "saknussemm"
@@ -1567,6 +1591,8 @@ def _provenance_description(
         provenance += f" {lib_version}"
     if config_fingerprint:
         provenance += f"; config {config_fingerprint}"
+    if resolver:
+        provenance += f"; word geometry by {resolver}"
     return f"Post-OCR correction via {provider}/{model} ({provenance})"
 
 

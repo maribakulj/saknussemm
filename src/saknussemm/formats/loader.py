@@ -25,7 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from saknussemm.core.protocols import FormatAdapter
+from saknussemm.core.protocols import FormatAdapter, WordGeometryResolver
 from saknussemm.core.schemas import (
     DEFAULT_PAIRING_POLICY,
     DocumentManifest,
@@ -90,7 +90,7 @@ def build_document_manifest(
 
 
 def adapter_for_format(
-    source_format: str | None, *, word_geometry: object | None = None
+    source_format: str | None, *, word_geometry: WordGeometryResolver | None = None
 ) -> FormatAdapter:
     """Resolve the adapter the MANIFEST declares — no implicit default (§3).
 
@@ -116,7 +116,7 @@ def adapter_for_format(
     if source_format == "alto":
         from saknussemm.formats.alto.adapter import AltoFormatAdapter
 
-        return AltoFormatAdapter(word_geometry=word_geometry)  # type: ignore[arg-type]
+        return AltoFormatAdapter(word_geometry=word_geometry)
     if source_format == "page":
         if word_geometry is not None:
             raise ConfigurationError(

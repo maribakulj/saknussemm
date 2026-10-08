@@ -51,7 +51,9 @@ the character-proportional fallback. The resolver is reached through
 `AltoFormatAdapter(word_geometry=…)` or `correct(…, word_geometry=…)` (the
 façade derives the adapter); its answer is validated before it reaches
 the tree. `RewriteResult.geometry_tiers` records, per slow-path line, which
-tier drew it. PAGE has no such seam (below).
+tier drew it, and the report carries it as `ProjectionStage.geometry_tier`;
+the processing step of the corrected file names the resolver (`word
+geometry by <name>`) when one drew boxes. PAGE has no such seam (below).
 
 ## PAGE (`saknussemm.formats.page`)
 
