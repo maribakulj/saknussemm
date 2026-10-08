@@ -27,10 +27,10 @@ from pathlib import Path
 from typing import Any
 
 from saknussemm.core.pipeline import CorrectionPipeline, CorrectionResult
-from saknussemm.core.protocols import EditProducer, WordGeometryResolver
+from saknussemm.core.protocols import EditProducer, FormatAdapter, WordGeometryResolver
 from saknussemm.core.schemas import DocumentManifest, PageImage
 from saknussemm.errors import ParseError
-from saknussemm.formats.loader import build_document_manifest
+from saknussemm.formats.loader import adapter_for_format, build_document_manifest
 
 
 class _NullObserver:
@@ -78,6 +78,20 @@ def load(*paths: str | Path) -> LoadedDocument:
     return LoadedDocument(manifest=manifest, source_paths=by_name)
 
 
+def _adapter_carrying(
+    document: LoadedDocument, word_geometry: WordGeometryResolver | None
+) -> FormatAdapter | None:
+    """``None`` keeps the engine's own derivation (no adapter injected);
+    a resolver is carried by the adapter the document's format derives --
+    and refused here, before any correction work, when that format has no
+    geometric slow path to hand it to (PAGE)."""
+    if word_geometry is None:
+        return None
+    return adapter_for_format(
+        document.manifest.source_format, word_geometry=word_geometry
+    )
+
+
 async def correct(
     document: LoadedDocument,
     *,
@@ -99,7 +113,9 @@ async def correct(
     it; this function is the three-line path, not a second surface.
     """
     pipeline = CorrectionPipeline(
-        producer=producer, observer=_NullObserver(), word_geometry=word_geometry
+        producer=producer,
+        observer=_NullObserver(),
+        format_adapter=_adapter_carrying(document, word_geometry),
     )
     return await pipeline.run(
         document_manifest=document.manifest,
@@ -125,7 +141,9 @@ def correct_sync(
     ``await saknussemm.correct(...)`` there.
     """
     pipeline = CorrectionPipeline(
-        producer=producer, observer=_NullObserver(), word_geometry=word_geometry
+        producer=producer,
+        observer=_NullObserver(),
+        format_adapter=_adapter_carrying(document, word_geometry),
     )
     return pipeline.run_sync(
         document_manifest=document.manifest,

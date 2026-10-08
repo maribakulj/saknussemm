@@ -1107,8 +1107,7 @@ def _rebuild_line(
     word_geometry: WordGeometryResolver | None = None,
     image: object | None = None,
     widths: DocWidths | None = None,
-    geometry_tiers: dict[str, str] | None = None,
-) -> tuple[dict[str, int], bool]:
+) -> tuple[dict[str, int], bool, str]:
     """Slow-path rebuild for any TextLine (normal, PART1, BOTH, PART2).
 
 
@@ -1225,7 +1224,7 @@ def _rebuild_line(
         else:
             for h in saved_hyp:
                 el.append(h)
-        return losses, False
+        return losses, False, "none"
 
     word_tokens = [t for t in tokens if not _is_space_token(t)]
     alignment = align_tokens(orig_contents, word_tokens)
@@ -1248,8 +1247,6 @@ def _rebuild_line(
         _geometry_request(manifest, hpos, vpos, text_width, height, tokens, image),
         _line_anchors(orig_string_attribs, alignment, width_model),
     )
-    if geometry_tiers is not None:
-        geometry_tiers[manifest.line_id] = tier
     str_n = sp_n = 0
     last_word_hpos = hpos
     last_word_width = hyp_width
@@ -1295,7 +1292,7 @@ def _rebuild_line(
         for h in saved_hyp:
             el.append(h)
 
-    return losses, alignment.move_suspected
+    return losses, alignment.move_suspected, tier
 
 
 # ---------------------------------------------------------------------------
@@ -1361,12 +1358,7 @@ def rewrite_alto_file(
     }
 
     geometry_tiers: dict[str, str] = {}
-    redraw = partial(
-        _rebuild_line,
-        word_geometry=word_geometry,
-        widths=DocWidths(root),
-        geometry_tiers=geometry_tiers,
-    )
+    redraw = partial(_rebuild_line, word_geometry=word_geometry, widths=DocWidths(root))
     seen_element_ids: set[str] = set()
     textline_tag = _tag("TextLine", ns)
     for tl_el in root.iter(textline_tag):
@@ -1423,12 +1415,8 @@ def rewrite_alto_file(
             continue
 
         # --- Path 4: SLOW PATH (word count changed) ---
-        line_losses, move_suspected = redraw(
-            tl_el,
-            write_text,
-            lm,
-            ns,
-            space_before_break=break_space,
+        line_losses, move_suspected, geometry_tiers[line_id] = redraw(
+            tl_el, write_text, lm, ns, space_before_break=break_space
         )
         _apply_subs(tl_el, lm, ns)
         metrics.slow_path += 1

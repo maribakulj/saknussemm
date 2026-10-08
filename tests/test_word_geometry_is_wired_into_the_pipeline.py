@@ -1,10 +1,12 @@
 """The slow path's resolver seam, reachable through the public pipeline.
 
 ``rewrite_alto_file`` accepted ``word_geometry`` since 2026-09-22;
-``AltoFormatAdapter`` did not pass it and ``CorrectionPipeline`` did not
-expose it, so a host wanting hans's resolver had to write an adapter
-(contre-revue du 7/10/2026). These tests pin the three public routes and
-the trace that says which tier actually drew each slow-path line.
+``AltoFormatAdapter`` did not pass it and nothing public reached it, so a
+host wanting hans's resolver had to write an adapter (contre-revue du
+7/10/2026). These tests pin the two public routes -- the adapter, and the
+façade deriving it -- and the trace that says which tier drew each
+slow-path line. ``CorrectionPipeline`` keeps its knobs: a resolver travels
+on the adapter, the third seam's own door.
 """
 
 from __future__ import annotations
@@ -20,7 +22,6 @@ from saknussemm.errors import ConfigurationError
 from saknussemm.facade import correct_sync, load
 from saknussemm.formats.alto.adapter import AltoFormatAdapter
 from saknussemm.formats.alto.parser import build_document_manifest as build_alto
-from saknussemm.formats.page.parser import build_document_manifest as build_page
 from saknussemm.producers.rules import RulesProducer, SubstitutionRule
 
 NS = "http://www.loc.gov/standards/alto/ns-v3#"
@@ -101,22 +102,6 @@ def test_the_adapter_carries_the_resolver(tmp_path: Path) -> None:
     assert _strings(result.corrected_files[path.name]) == PINNED
 
 
-def test_the_pipeline_exposes_the_resolver_without_an_adapter(tmp_path: Path) -> None:
-    path = _alto(tmp_path)
-    resolver = _Pinned()
-    pipeline = CorrectionPipeline(
-        producer=_producer(),
-        observer=_Silent(),
-        word_geometry=resolver,
-    )
-    result = pipeline.run_sync(
-        document_manifest=build_alto([(path, path.name)]),
-        source_files={path.name: path},
-    )
-    assert resolver.asked == ["L1"]
-    assert _strings(result.corrected_files[path.name]) == PINNED
-
-
 def test_the_facade_exposes_the_resolver(tmp_path: Path) -> None:
     path = _alto(tmp_path)
     resolver = _Pinned()
@@ -125,30 +110,14 @@ def test_the_facade_exposes_the_resolver(tmp_path: Path) -> None:
     assert _strings(result.corrected_files[path.name]) == PINNED
 
 
-def test_a_resolver_and_an_adapter_together_are_refused() -> None:
-    with pytest.raises(ConfigurationError, match="not both"):
-        CorrectionPipeline(
-            producer=_producer(),
-            observer=_Silent(),
-            format_adapter=AltoFormatAdapter(),
-            word_geometry=_Pinned(),
-        )
-
-
-def test_a_resolver_on_a_page_document_is_refused_at_run_start(tmp_path: Path) -> None:
+def test_a_resolver_on_a_page_document_is_refused_before_any_run(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "page.xml"
     path.write_text(PAGE, encoding="utf-8")
     resolver = _Pinned()
-    pipeline = CorrectionPipeline(
-        producer=_producer(),
-        observer=_Silent(),
-        word_geometry=resolver,
-    )
-    with pytest.raises(ConfigurationError, match="PAGE|page"):
-        pipeline.run_sync(
-            document_manifest=build_page([(path, path.name)]),
-            source_files={path.name: path},
-        )
+    with pytest.raises(ConfigurationError, match="PAGE"):
+        correct_sync(load(path), producer=_producer(), word_geometry=resolver)
     assert resolver.asked == []
 
 

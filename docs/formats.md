@@ -48,8 +48,8 @@ redrawn by the first of three tiers that answers: an injected
 page's own kept boxes with letter widths learned on that file (`anchored`,
 `anchored_supposed` when it had to invent a box for an inserted word), then
 the character-proportional fallback. The resolver is reached through
-`AltoFormatAdapter(word_geometry=…)`, `CorrectionPipeline(word_geometry=…)`
-or `correct(…, word_geometry=…)`; its answer is validated before it reaches
+`AltoFormatAdapter(word_geometry=…)` or `correct(…, word_geometry=…)` (the
+façade derives the adapter); its answer is validated before it reaches
 the tree. `RewriteResult.geometry_tiers` records, per slow-path line, which
 tier drew it. PAGE has no such seam (below).
 

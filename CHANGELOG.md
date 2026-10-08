@@ -87,15 +87,16 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
   2026-09-22 ; `AltoFormatAdapter` ne le transmettait pas et
   `CorrectionPipeline` ne l'exposait pas, donc brancher le résolveur CTC de
   hans demandait d'écrire son propre adaptateur (contre-revue du 7/10/2026).
-  Trois routes désormais : `AltoFormatAdapter(word_geometry=…)`,
-  `CorrectionPipeline(word_geometry=…)` (exclusif d'un `format_adapter`
-  injecté, refusé au démarrage sur un document PAGE : le réécrivain PAGE n'a
-  pas de chemin lent géométrique), `correct(…, word_geometry=…)` /
-  `correct_sync`. Un run sans résolveur reste identique à l'octet.
+  Deux routes désormais : `AltoFormatAdapter(word_geometry=…)` — la
+  troisième couture garde sa porte, `CorrectionPipeline` ne gagne aucun
+  bouton — et `correct(…, word_geometry=…)` / `correct_sync`, où la façade
+  dérive l'adaptateur du format du document et refuse avant tout travail
+  un document PAGE (le réécrivain PAGE n'a pas de chemin lent géométrique).
+  Un run sans résolveur reste identique à l'octet.
   `RewriteResult.geometry_tiers` nomme, par ligne du chemin lent, le niveau
   qui a dessiné les boîtes — `resolver:<nom>`, `anchored`,
-  `anchored_supposed`, `proportional` — pour qu'un hôte sache combien le
-  résolveur a réellement servi et où il a été suppléé.
+  `anchored_supposed`, `proportional`, `none` — pour qu'un hôte sache
+  combien le résolveur a réellement servi et où il a été suppléé.
 
 - **Un résolveur en dernier recours est aussi interrogé quand la page a dû
   supposer.** `last_resort = True` ne le sollicitait que si la géométrie

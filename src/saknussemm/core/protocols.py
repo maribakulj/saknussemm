@@ -411,8 +411,9 @@ class RewriteResult:
     #: Slow-path lines only: line_id → which tier drew the word boxes.
     #: ``"resolver:<name>"`` (the injected WordGeometryResolver answered),
     #: ``"anchored"`` (the page's own kept boxes), ``"anchored_supposed"``
-    #: (anchored, but it had to suppose an inserted word or a scrap) or
-    #: ``"proportional"`` (the pixel-blind fallback). Empty for formats
+    #: (anchored, but it had to suppose an inserted word or a scrap),
+    #: ``"proportional"`` (the pixel-blind fallback) or ``"none"`` (the
+    #: line was emptied: nothing to draw). Empty for formats
     #: without a geometric slow path. A host that wants to know how much
     #: a resolver was actually used reads this; before it existed, the
     #: method really used and its fallbacks were invisible (contre-revue
