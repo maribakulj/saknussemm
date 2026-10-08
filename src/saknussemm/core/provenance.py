@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from saknussemm.core.sources import SourceSnapshot
 from typing import Any, Protocol
 
 from saknussemm.core.protocols import EditProducer, ProducerMetadata
@@ -72,6 +73,8 @@ def _digest_sources(source_files: dict[str, Path]) -> dict[str, str]:
 def digests_of_the_bytes_decided_on(
     document_manifest: DocumentManifest,
     source_files: dict[str, Path],
+    *,
+    snapshots: dict[str, SourceSnapshot] | None = None,
 ) -> dict[str, str]:
     """Digests for the given files, taken from the parse rather than re-read.
 
@@ -79,18 +82,13 @@ def digests_of_the_bytes_decided_on(
     the keys follow ``source_files`` — a decide-only run gives none and
     attests none.
 
-    The *values* come from the parser's stamp, and that is the correction.
-    :func:`_digest_sources` used to run **after** the render, hashing a
-    third read of each file, so a document that changed mid-run was
-    attested by a digest of bytes nothing had ever parsed — and the same
-    edit script carried preconditions computed on one version beside a
-    digest of another. Replayed against the file it names, it failed its own
-    preconditions. The preflight now refuses a path whose bytes moved, so
-    the stamp is both truthful and verified.
-
-    Falls back to hashing when the manifest carries no stamp, which means it
-    was not built by a parser of this library.
+    Runs supply the immutable snapshots captured and verified at preflight:
+    neither rendering nor provenance reopens the source paths. This also
+    covers hand-built manifests without a parser stamp. Callers without
+    snapshots retain the parser stamp, or hash their files if unstamped.
     """
+    if snapshots is not None:
+        return {name: source_digest(source.raw) for name, source in snapshots.items()}
     stamped = document_manifest.source_digests
     if not stamped:
         return _digest_sources(source_files)

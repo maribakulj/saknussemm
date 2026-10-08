@@ -30,6 +30,32 @@ quatre items de vérité documentaire, et écrivait la règle de gel.
 
 ---
 
+## Correctifs d'intégrité — 2026-10-07
+
+Le lot de correction traite des défauts reproduits sur les octets livrés :
+provenance ALTO 4 non conforme, glyphes et textes agrégés périmés, boîtes PAGE
+conservées malgré un déplacement de frontière, relecture de sources modifiées,
+collisions de fichiers et liens symboliques à l'écriture. Il ajoute au
+pipeline le contrôle du XML sérialisé et des diagnostics XSD des versions
+embarquées. Les règles et limites sont dans `formats.md`,
+`format-support.md` et `reading-a-report.md` ; les changements de sortie sont
+décrits au `CHANGELOG` et couverts par des régressions.
+
+La contre-revue de ce lot a ajouté quatre régressions corrigées : référence
+ALTO vers un Glyph supprimé (fichier retenu, sans remappage arbitraire),
+déplacement de frontière accompagné d'une faute OCR, sidecar obsolète dans
+un dossier réutilisé et ancien XML laissé pour un fichier désormais retenu
+en écriture partielle. Le garde de frontières reste heuristique ; l'écriture
+reste atomique par fichier. Utiliser un dossier neuf par exécution pour la
+publication d'un lot.
+
+Ce lot ne ferme aucun critère de qualité des modèles, de calibration des
+gardes ou de publication. Les campagnes représentatives, la décision humaine
+de publication et le traitement applicatif des lignes à revoir restent
+nécessaires. Il n'intègre ni CTC, ni YOLO, ni nouvelle méthode de géométrie.
+
+---
+
 ## Objectif : `0.10.0`, puis `1.0.0` — jamais l'inverse
 
 Publier une `0.x` honnête plutôt qu'une `1.0` prématurée. Les raisons ont

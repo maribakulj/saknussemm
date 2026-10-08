@@ -5,7 +5,11 @@ from pathlib import Path
 from lxml import etree
 
 from saknussemm.errors import ParseError
-from saknussemm.formats._xml import classified_parse_errors, sniff_format
+from saknussemm.formats._xml import (
+    classified_parse_errors,
+    mislabelled_utf8,
+    sniff_format,
+)
 from saknussemm.formats.alto._ns import (
     _detect_namespace,
     _int_attr,
@@ -323,13 +327,13 @@ def _parse_alto_file(
     page_index_offset: int,
     global_line_offset: int,
     pairing_policy: PairingPolicy,
+    *,
+    source_bytes: bytes | None = None,
 ) -> tuple[list[PageManifest], etree._Element]:
-    # Hardened parser shared with rewriter.py + extract_output_texts.
-    # See saknussemm.formats.alto._ns.make_safe_parser docstring.
-    tree = read_source_tree(xml_path)
+    # Hardened parser shared with rewriting and output text extraction.
+    tree = read_source_tree(xml_path, source_bytes=source_bytes)
     root = tree.getroot()
     ns = _detect_namespace(root)
-
     pages: list[PageManifest] = []
     global_line_idx = global_line_offset
 
@@ -489,27 +493,39 @@ def build_document_manifest(
     on the document instead of being told. This is the guard for when they
     do not.
     """
-    for xml_path, source_name in files:
-        detected = sniff_format(xml_path)
-        if detected != "alto":
-            raise ParseError(
-                f"{source_name!r} is {detected.upper()}, not ALTO. Reading "
-                "it here would find no ALTO pages and yield an EMPTY "
-                "manifest — a run over nothing that reports success. Use "
-                "saknussemm.formats.loader.build_document_manifest, which "
-                "picks the parser from the document."
-            )
-
     source_files: list[str] = []
+    source_digests: dict[str, str] = {}
+    source_encodings: dict[str, str] = {}
     page_offset = 0
     line_offset = 0
     parsed: list[tuple[str, list[PageManifest]]] = []
 
     for xml_path, source_name in files:
+        # Detection, text and provenance all describe this one snapshot,
+        # even if the file is replaced or removed while parsing it.
+        with classified_parse_errors(source_name):
+            raw = xml_path.read_bytes()
+            detected = sniff_format(xml_path, source_bytes=raw)
+            if detected != "alto":
+                raise ParseError(
+                    f"{source_name!r} is {detected.upper()}, not ALTO. Reading "
+                    "it here would find no ALTO pages and yield an EMPTY "
+                    "manifest — a run over nothing that reports success. Use "
+                    "saknussemm.formats.loader.build_document_manifest, which "
+                    "picks the parser from the document."
+                )
+            pages, _ = _parse_alto_file(
+                xml_path,
+                source_name,
+                page_offset,
+                line_offset,
+                pairing_policy,
+                source_bytes=raw,
+            )
         source_files.append(source_name)
-        pages, _ = parse_alto_file(
-            xml_path, source_name, page_offset, line_offset, pairing_policy
-        )
+        source_digests[source_name] = source_digest(raw)
+        if (declared := mislabelled_utf8(raw)) is not None:
+            source_encodings[source_name] = declared
         parsed.append((source_name, pages))
         page_offset += len(pages)
         for p in pages:
@@ -528,10 +544,8 @@ def build_document_manifest(
 
     return DocumentManifest(
         source_files=source_files,
-        # Stamped by the parser that read these bytes — see
-        # `DocumentManifest.source_digests` for what the render-time reopen
-        # can then prove, and what went undetected until it could.
-        source_digests={name: source_digest(path.read_bytes()) for path, name in files},
+        source_digests=source_digests,
+        source_encodings=source_encodings,
         pages=all_pages,
         source_format="alto",
     )

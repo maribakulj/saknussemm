@@ -422,6 +422,11 @@ L'existant est conservé (parser, rewriter 4 chemins, provenance
 - La géométrie mot post-correction est une **approximation documentée**
   (attribut d'en-tête ou commentaire XML optionnel signalant la passe de
   correction ; le `processingStep` porte déjà la provenance).
+- Un `String` dont le `CONTENT` change perd ses `Glyph` périmés ; les
+  suppressions sont comptées dans `glyph_elements_removed`. Les glyphes des
+  mots inchangés sur le chemin rapide sont conservés. La provenance ALTO 4
+  utilise un nouveau `Processing` doté d'un `ID` unique et d'enfants directs
+  conformes au schéma ; ALTO 2/3 utilise `OCRProcessing/postProcessingStep`.
 
 ### 6.2 PAGE XML (nouveau, v1.1)
 
@@ -446,12 +451,19 @@ est nouveau. Règles normatives :
   (confiance périmée — même doctrine que F2) et **suppression des TextEquiv
   alternatifs** de l'élément (ils décrivaient l'ancien texte) ; le tout
   compté dans le `CorrectionReport`.
-- **P4 — Éléments `Word`.** Fast path (compte de mots inchangé) : mise à
+- **P4 — Éléments `Word`.** Fast path (compte inchangé, aucune frontière
+  déplacée détectée) : mise à
   jour des `TextEquiv` de chaque `Word` en place, `Coords` conservées,
-  `@conf` supprimé. Slow path (compte changé) : les `Word` de la ligne sont
+  `@conf` supprimé. Slow path (compte changé ou frontières suspectes) : les `Word` de la ligne sont
   **supprimés**, le texte vit au niveau ligne — fabriquer des polygones de
   mots dans une ligne inclinée serait plus mensonger que l'approximation
-  bbox d'ALTO ; perte de granularité **documentée et comptée**.
+  bbox d'ALTO ; perte de granularité **documentée et comptée**. Les glyphes
+  des mots modifiés sont supprimés et comptés. Une ligne modifiée invalide
+  les `TextEquiv` agrégés de ses régions ancêtres, comptés une fois sur le
+  premier descendant modifié. `LossPolicy(strict=True)` refuse les
+  corrections qui supprimeraient les Word ; il refuse aussi celles dont
+  les lectures Word sources ne sont plus disponibles pour cette vérification
+  (notamment après sérialisation du manifest). Une identité reste inchangée.
 - **P5 — Césure : heuristique, toujours.** PAGE n'a ni `<HYP>` ni
   `SUBS_TYPE`/`SUBS_CONTENT`. Détection de rôle sur caractères terminaux
   configurables : `-`, `¬` (U+00AC, convention Transkribus), `⸗` (U+2E17,
