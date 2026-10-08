@@ -215,6 +215,8 @@ def _record_rewrite_on_traces(
 
     for lid, rewriter_path in result.rewriter_paths.items():
         put(lid, rewriter_path=rewriter_path)
+    for lid, tier in result.geometry_tiers.items():
+        put(lid, geometry_tier=tier)
     for lid, output_text in result.texts.items():
         put(lid, output_alto_text=output_text)
     for lid, level in fidelity_by_lid.items():

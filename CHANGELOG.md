@@ -123,6 +123,28 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- **Le résolveur de géométrie du chemin lent est joignable par le pipeline
+  public.** `rewrite_alto_file(word_geometry=…)` existait depuis le
+  2026-09-22 ; `AltoFormatAdapter` ne le transmettait pas et
+  `CorrectionPipeline` ne l'exposait pas, donc brancher le résolveur CTC de
+  hans demandait d'écrire son propre adaptateur (contre-revue du 7/10/2026).
+  Deux routes désormais : `AltoFormatAdapter(word_geometry=…)` — la
+  troisième couture garde sa porte, `CorrectionPipeline` ne gagne aucun
+  bouton — et `correct(…, word_geometry=…)` / `correct_sync`, où la façade
+  dérive l'adaptateur du format du document et refuse avant tout travail
+  un document PAGE (le réécrivain PAGE n'a pas de chemin lent géométrique).
+  Un run sans résolveur reste identique à l'octet.
+  `RewriteResult.geometry_tiers` nomme, par ligne du chemin lent, le niveau
+  qui a dessiné les boîtes — `resolver:<nom>`, `anchored`,
+  `anchored_supposed`, `proportional`, `none` — et le rapport le porte
+  (`ProjectionStage.geometry_tier`, additif et optionnel, comme
+  `rewriter_path`) pour qu'un hôte sache combien le résolveur a réellement
+  servi. Un résolveur qui lève ou répond l'inadmissible n'est pas nommé :
+  le niveau dit qui a dessiné, pas qui a été essayé. Le fichier le dit aussi :
+  l'étape de traitement ajoute `; word geometry by <nom>` quand un résolveur
+  a dessiné des boîtes, puisque deux runs du même producteur sous la même
+  empreinte de configuration peuvent différer par ce tiers.
+
 - **Un résolveur en dernier recours est aussi interrogé quand la page a dû
   supposer.** `last_resort = True` ne le sollicitait que si la géométrie
   ancrée ne rendait rien. Or elle rend parfois une supposition : un mot

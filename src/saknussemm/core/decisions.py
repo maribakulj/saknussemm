@@ -230,6 +230,7 @@ def build_line_outcomes(
                 projection = ProjectionStage(
                     extracted_text=trace.output_alto_text,
                     rewriter_path=trace.rewriter_path,
+                    geometry_tier=trace.geometry_tier,
                     # ADR-012 — per-decision attribution of the rewrite's
                     # granularity losses (None when nothing was lost).
                     losses=trace.projection_losses,

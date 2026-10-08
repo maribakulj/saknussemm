@@ -256,6 +256,18 @@ def _resolve_geometry(
 ) -> list[tuple[str, int, int]]:
     """The first usable geometry of: the resolver's, the anchored, the proportional.
 
+    See :func:`_resolve_geometry_with_tier` for which tier answered.
+    """
+    return _resolve_geometry_with_tier(resolver, request, anchors)[0]
+
+
+def _resolve_geometry_with_tier(
+    resolver: WordGeometryResolver | None,
+    request: LineGeometryRequest,
+    anchors: LineAnchors | None,
+) -> tuple[list[tuple[str, int, int]], str]:
+    """The first usable geometry of: the resolver's, the anchored, the proportional.
+
     Three tiers, each validated by ``_geometry_is_usable`` and each falling
     through to the next on any failure -- no resolver, a resolver that
     raises or answers nonsense, a line the anchored layout cannot draw --
@@ -285,10 +297,11 @@ def _resolve_geometry(
     """
     tokens = list(request.tokens)
     last_resort = getattr(resolver, "last_resort", False)
+    resolver_tier = f"resolver:{getattr(resolver, 'name', 'resolver')}"
     if resolver is not None and not last_resort:
         geo = _ask_resolver(resolver, request, tokens)
         if geo is not None:
-            return geo
+            return geo, resolver_tier
 
     anchored: AnchoredLayout | None = None
     if anchors is not None:
@@ -303,18 +316,18 @@ def _resolve_geometry(
         ):
             anchored = layout
     if anchored is not None and not (last_resort and anchored.guessed):
-        return anchored
+        return anchored, ("anchored_supposed" if anchored.guessed else "anchored")
 
     # The page could not answer, or answered by supposing (an inserted
     # word, a run grown out of a scrap): that is what a last resort is for.
     if resolver is not None and last_resort:
         geo = _ask_resolver(resolver, request, tokens)
         if geo is not None:
-            return geo
+            return geo, resolver_tier
 
     if anchored is not None:
-        return anchored
-    return _compute_geometry(request.hpos, request.width, tokens)
+        return anchored, "anchored_supposed"
+    return _compute_geometry(request.hpos, request.width, tokens), "proportional"
 
 
 def _ask_resolver(
@@ -1074,7 +1087,7 @@ def _rebuild_line(
     word_geometry: WordGeometryResolver | None = None,
     image: object | None = None,
     widths: DocWidths | None = None,
-) -> tuple[dict[str, int], bool]:
+) -> tuple[dict[str, int], bool, str]:
     """Slow-path rebuild for any TextLine (normal, PART1, BOTH, PART2).
 
 
@@ -1191,7 +1204,7 @@ def _rebuild_line(
         else:
             for h in saved_hyp:
                 el.append(h)
-        return losses, False
+        return losses, False, "none"
 
     word_tokens = [t for t in tokens if not _is_space_token(t)]
     alignment = align_tokens(orig_contents, word_tokens)
@@ -1209,7 +1222,7 @@ def _rebuild_line(
         if "ID" in orig_string_attribs[i]
     }
 
-    geo = _resolve_geometry(
+    geo, tier = _resolve_geometry_with_tier(
         word_geometry,
         _geometry_request(manifest, hpos, vpos, text_width, height, tokens, image),
         _line_anchors(orig_string_attribs, alignment, width_model),
@@ -1259,12 +1272,27 @@ def _rebuild_line(
         for h in saved_hyp:
             el.append(h)
 
-    return losses, alignment.move_suspected
+    return losses, alignment.move_suspected, tier
 
 
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
+
+def _record_losses(
+    losses_by_line: dict[str, dict[str, int]],
+    losses: dict[str, int],
+    line_id: str,
+    line_losses: dict[str, int],
+) -> None:
+    """Attribute a line's losses (ADR-012) and roll them into the run
+    aggregate. One site, so the two can never disagree."""
+    if not line_losses:
+        return
+    losses_by_line[line_id] = {**losses_by_line.get(line_id, {}), **line_losses}
+    for key, value in line_losses.items():
+        losses[key] = losses.get(key, 0) + value
 
 
 def rewrite_alto_file(
@@ -1301,17 +1329,7 @@ def rewrite_alto_file(
     losses_by_line: dict[str, dict[str, int]] = {}
     word_order_suspected: set[str] = set()
 
-    def record(line_id: str, line_losses: dict[str, int]) -> None:
-        """Attribute a line's losses (ADR-012) and roll them into the run
-        aggregate. One site, so the two can never disagree."""
-        if not line_losses:
-            return
-        losses_by_line[line_id] = {
-            **losses_by_line.get(line_id, {}),
-            **line_losses,
-        }
-        for key, value in line_losses.items():
-            losses[key] = losses.get(key, 0) + value
+    record = partial(_record_losses, losses_by_line, losses)
 
     # IDs key correction-to-element associations. Check both the manifest
     # and the XML so direct calls cannot silently target a duplicate line.
@@ -1320,6 +1338,7 @@ def rewrite_alto_file(
         lm.line_id: lm for page in page_manifests for lm in page.lines
     }
 
+    geometry_tiers: dict[str, str] = {}
     redraw = partial(_rebuild_line, word_geometry=word_geometry, widths=DocWidths(root))
     seen_element_ids: set[str] = set()
     textline_tag = _tag("TextLine", ns)
@@ -1377,12 +1396,8 @@ def rewrite_alto_file(
             continue
 
         # --- Path 4: SLOW PATH (word count changed) ---
-        line_losses, move_suspected = redraw(
-            tl_el,
-            write_text,
-            lm,
-            ns,
-            space_before_break=break_space,
+        line_losses, move_suspected, geometry_tiers[line_id] = redraw(
+            tl_el, write_text, lm, ns, space_before_break=break_space
         )
         _apply_subs(tl_el, lm, ns)
         metrics.slow_path += 1
@@ -1430,6 +1445,7 @@ def rewrite_alto_file(
         losses=losses,
         losses_by_line=losses_by_line,
         word_order_suspected=frozenset(word_order_suspected),
+        geometry_tiers=geometry_tiers,
     )
 
 
@@ -1482,6 +1498,7 @@ def _add_processing_entry(
     model: str,
     lib_version: str | None = None,
     config_fingerprint: str | None = None,
+    resolver: WordGeometryResolver | None = None,
 ) -> None:
     """Append schema-valid provenance without changing earlier records.
 
@@ -1495,7 +1512,11 @@ def _add_processing_entry(
     if desc is None:
         return
     description = _provenance_description(
-        provider, model, lib_version, config_fingerprint
+        provider,
+        model,
+        lib_version,
+        config_fingerprint,
+        resolver=getattr(resolver, "name", None) if resolver is not None else None,
     )
 
     if ns == "http://www.loc.gov/standards/alto/ns-v4#":
@@ -1520,6 +1541,7 @@ def _provenance_description(
     model: str,
     lib_version: str | None,
     config_fingerprint: str | None,
+    resolver: str | None = None,
 ) -> str:
     """The human-readable provenance line shared by every ALTO container."""
     provenance = "saknussemm"
@@ -1527,6 +1549,8 @@ def _provenance_description(
         provenance += f" {lib_version}"
     if config_fingerprint:
         provenance += f"; config {config_fingerprint}"
+    if resolver:
+        provenance += f"; word geometry by {resolver}"
     return f"Post-OCR correction via {provider}/{model} ({provenance})"
 
 
