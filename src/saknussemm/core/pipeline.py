@@ -408,7 +408,7 @@ class CorrectionPipeline:
         # the instance.
         ctx = RunContext(should_abort=should_abort)
 
-        _preflight(
+        sources = _preflight(
             producer=self.producer,
             escalation_producer=self.escalation_producer,
             format_adapter=self.format_adapter,
@@ -449,13 +449,13 @@ class CorrectionPipeline:
             config_fingerprint=self.config_fingerprint(),
             emit=self._emit,
             document_manifest=document_manifest,
-            source_files=source_files,
+            source_files=sources,
             traces=index.traces,
             decisions=decisions,
         )
 
         source_digests = digests_of_the_bytes_decided_on(
-            document_manifest, source_files
+            document_manifest, source_files, snapshots=sources
         )
 
         report = _build_correction_report(

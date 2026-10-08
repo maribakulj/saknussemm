@@ -199,7 +199,7 @@ def test_every_cited_spec_section_exists() -> None:
 _STILL_TAGGED: dict[str, int] = {
     "core/hyphenation.py": 2,
     "core/pairing.py": 5,
-    "formats/alto/rewriter.py": 15,
+    "formats/alto/rewriter.py": 14,
 }
 
 

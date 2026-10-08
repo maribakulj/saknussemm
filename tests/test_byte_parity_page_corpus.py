@@ -19,6 +19,11 @@ LaFayette     identity     29000     **unchanged**
 LaFayette     scripted     26163     ``Word`` -7, and its four children
 ============  ==========  =========  ==================================
 
+On 2026-10-07, the scripted digests deliberately changed again: stale
+region-level TextEquiv are now removed when a descendant line changes.
+Compared with f763824, Descartes drops four region readings and LaFayette
+two; every TextLine remains byte-identical. Identity digests stay unchanged.
+
 Two things follow, and both are asserted below rather than left to the hash.
 
 **The identity run changes no element at all.** Its 20 extra bytes are the
@@ -83,13 +88,13 @@ _GOLDEN = {
         "afcf40824bc272d78b4b41fee75d76874ee92ee4fa63316581983b049f869a9a"
     ),
     ("Descartes", "scripted"): (
-        "44a315b2ed7f1573b4c96661ca7629a739bdea80840e6336f39015e0037f1e9f"
+        "476fe97c74d9eddda45dc40a3a9b79cb0c047c03eb7ca45860669dff20b88cf0"
     ),
     ("LaFayette", "identity"): (
         "4b38b1e1ecdcc1e29ec68056115e8a1ab234414a2da3c8d05efe08bd1d7e7c7d"
     ),
     ("LaFayette", "scripted"): (
-        "279b32b0abeaedd28bd7110a4d7484d37ece2e73d300ac13055172d91ab80fc8"
+        "10c62e508fcb7ea06b98f7190a3bf3d2bf380c95a50cb0998f40adeb17160295"
     ),
 }
 
@@ -209,12 +214,14 @@ def test_every_dropped_word_is_counted(fixture: str) -> None:
         "phantom; and the two channels disagreeing means one of them is "
         "attributing to the wrong line."
     )
+    region_readings = _declared(result)["region_textequiv_dropped"]
     for child in _WORD_CHILDREN:
-        assert before[child] - after[child] == lost, (
+        expected = lost + (region_readings if child in {"TextEquiv", "Unicode"} else 0)
+        assert before[child] - after[child] == expected, (
             f"{fixture}: {lost} <Word> element(s) went but {child} moved by "
             f"{before[child] - after[child]}. A Word is dropped whole, with "
-            "its four children; a partial drop means the rewrite is editing "
-            "inside a subtree it decided to remove."
+            "its four children; region readings also lose TextEquiv/Unicode, "
+            "and each must be counted separately."
         )
 
 

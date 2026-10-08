@@ -171,9 +171,30 @@ def test_ordinary_corrections_stay_on_the_fast_path() -> None:
         (["|||"], ["Ill"]),
         (["attendre"], ["attendrent"]),
         (["au", "jourdhui"], ["au", "jourdhui"]),
+        (["Frauce", "uue"], ["France", "une"]),
+        (["ﬂeur", "bleue"], ["fleur", "bleue"]),
+        (["cafe\u0301", "chaud"], ["café", "chaud"]),
+        (["bonjour,", "ami!"], ["bonjour", "ami."]),
+        (["un", "jour"], ["une", "jours"]),
     ):
         assert not _word_boundary_moved(originals, words), (
             f"{originals} -> {words} was refused the fast path. This is an "
             "ordinary correction at a stable boundary; refusing it costs "
             "geometry that was already correct."
         )
+
+
+def test_a_boundary_move_with_a_typo_declines_the_alto_fast_path(tmp_path):
+    path = tmp_path / "boundary.xml"
+    path.write_text(
+        _ALTO.replace('CONTENT="au"', 'CONTENT="le"').replace(
+            'CONTENT="jourdhui"', 'CONTENT="stcmps"'
+        )
+    )
+    manifest = build_document_manifest([(path, path.name)])
+    result = CorrectionPipeline(
+        producer=RulesProducer([SubstitutionRule("le stcmps", "les temps")]),
+        observer=RecordingObserver(),
+    ).run_sync(document_manifest=manifest, source_files={path.name: path})
+    assert result.report.lines[0].projection.rewriter_path == "slow_path"
+    assert result.report.lines[0].projection.extracted_text == "les temps"

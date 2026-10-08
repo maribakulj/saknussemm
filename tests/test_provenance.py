@@ -1,4 +1,4 @@
-"""Provenance stamped into the corrected XML's processingStep (spec §11)."""
+"""Provenance stamped into schema-defined ALTO processing records."""
 
 from __future__ import annotations
 
@@ -12,13 +12,12 @@ from saknussemm.formats.alto.rewriter import rewrite_alto_file
 
 _NS = "http://www.loc.gov/standards/alto/ns-v4#"
 
-# ALTO with a <Description><Processing> (the ALTO 4.0 generic slot) so the
-# rewriter appends a processingStep.
+# ALTO 4 appends a new Processing record beside the source history.
 _ALTO = f"""<?xml version="1.0"?>
 <alto xmlns="{_NS}">
-  <Description><Processing ID="P0"/></Description>
+  <Description><MeasurementUnit>pixel</MeasurementUnit><Processing ID="P0"/></Description>
   <Layout>
-    <Page ID="P1" WIDTH="600" HEIGHT="800">
+    <Page ID="P1" WIDTH="600" HEIGHT="800" PHYSICAL_IMG_NR="1">
       <PrintSpace>
         <TextBlock ID="B1" HPOS="0" VPOS="0" WIDTH="500" HEIGHT="30">
           <TextLine ID="L1" HPOS="0" VPOS="0" WIDTH="500" HEIGHT="30">
@@ -35,8 +34,8 @@ _ALTO = f"""<?xml version="1.0"?>
 # post-OCR correction pass must be recorded there too — as a
 # <postProcessingStep> — or §11's "every corrected file records the pass" is
 # silently false for exactly the files real users bring.
-_ALTO_OCRPROCESSING = f"""<?xml version="1.0"?>
-<alto xmlns="{_NS}">
+_ALTO_OCRPROCESSING = """<?xml version="1.0"?>
+<alto xmlns="http://www.loc.gov/standards/alto/ns-v3#">
   <Description>
     <MeasurementUnit>pixel</MeasurementUnit>
     <OCRProcessing ID="OCR_1">
@@ -48,7 +47,7 @@ _ALTO_OCRPROCESSING = f"""<?xml version="1.0"?>
     </OCRProcessing>
   </Description>
   <Layout>
-    <Page ID="P1" WIDTH="600" HEIGHT="800">
+    <Page ID="P1" WIDTH="600" HEIGHT="800" PHYSICAL_IMG_NR="1">
       <PrintSpace>
         <TextBlock ID="B1" HPOS="0" VPOS="0" WIDTH="500" HEIGHT="30">
           <TextLine ID="L1" HPOS="0" VPOS="0" WIDTH="500" HEIGHT="30">
@@ -70,8 +69,8 @@ def _write(tmp_path: Path) -> Path:
 def _processing_step_descriptions(xml_bytes: bytes) -> list[str]:
     root = etree.fromstring(xml_bytes)
     ns = _detect_namespace(root)
-    tag = f"{{{ns}}}processingStep" if ns else "processingStep"
-    return [el.get("description", "") for el in root.iter(tag)]
+    tag = f"{{{ns}}}processingStepDescription" if ns else "processingStepDescription"
+    return [el.text or "" for el in root.iter(tag)]
 
 
 def _post_processing_descriptions(xml_bytes: bytes) -> list[str]:
@@ -99,7 +98,7 @@ def test_processing_step_carries_version_and_fingerprint(tmp_path: Path):
     )
     xml_bytes = _res.xml_bytes
     descs = _processing_step_descriptions(xml_bytes)
-    assert descs, "no processingStep written"
+    assert descs, "no processing description written"
     assert any("openai/gpt-x" in d for d in descs)
     assert any("saknussemm 9.9.9" in d for d in descs)
     assert any("config deadbeefcafe0000" in d for d in descs)

@@ -108,6 +108,21 @@ since the granularity descent is the only path that reaches LINE planning.
 occurrence it reaches four digits on a single page and tracks how wordy a line
 is rather than anything you would act on.
 
+## Character and region annotations
+
+`glyph_elements_removed` counts actual Glyph elements removed from ALTO or
+PAGE, including those inside a discarded word. The corrected text no longer
+supports their character segmentation; unchanged words on a fast path retain
+their glyphs.
+
+`region_textequiv_dropped` counts PAGE TextRegion readings invalidated by a
+changed descendant line. A reading shared by several changed lines is
+attributed once, to the first line that removes it. The region polygon is
+retained. This does not mean that line text was lost.
+
+These counts use elements as their unit; `confidence_invalidated` uses
+lines. Summing all loss keys is not a count of lost words or characters.
+
 ## `word_order_suspected` (per line)
 
 **Means:** the token alignment could not vouch for the word order it was

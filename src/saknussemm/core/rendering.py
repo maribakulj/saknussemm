@@ -13,7 +13,7 @@ property of a run.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from saknussemm.core import events as ev
@@ -28,6 +28,7 @@ from saknussemm.core.protocols import (
     RewriteResult,
 )
 from saknussemm.core.schemas import DocumentManifest, LineTrace, PageManifest
+from saknussemm.core.sources import SourceSnapshot
 from saknussemm.errors import ProjectionError
 
 
@@ -38,7 +39,7 @@ async def _render_outputs(
     config_fingerprint: str,
     emit: Callable[[ev.EngineEvent], None],
     document_manifest: DocumentManifest,
-    source_files: dict[str, Path],
+    source_files: Mapping[str, Path | SourceSnapshot],
     traces: dict[LineRef, LineTrace],
     decisions: DecisionSet,
 ) -> RenderOutcome:
@@ -48,11 +49,11 @@ async def _render_outputs(
     also where the contract around an undeliverable file is written.
 
     ADR-011 — pure computation: nothing is persisted here (the engine has no
-    writer; the caller persists from the result). The projection invariant
-    verifies against the :class:`RewriteResult`'s texts, read off the very
-    tree the bytes were serialized from: the second full parse of the output
-    is gone. The heavy ``rewrite_file`` call (a full lxml
-    parse/rewrite/serialize of the source file) runs in a worker thread so a
+    writer; the caller persists from the result). Runs bind the adapter to
+    the captured source bytes. That binding checks the serialized XML's
+    text, line inventory and XSD diagnostics before the projection invariant
+    compares it with the decisions. The heavy parse/rewrite/validation runs
+    in a worker thread so a
     ~100 MiB rewrite no longer freezes the host's event loop (SSE
     keepalives, /health). Observer events stay ON the loop — emit sites must
     never run from a thread (the store's queues are not thread-safe).
@@ -67,7 +68,8 @@ async def _render_outputs(
     corrected_files: dict[str, bytes] = {}
     undeliverable: dict[str, str] = {}
 
-    for source_name, xml_path in source_files.items():
+    for source_name, source in source_files.items():
+        xml_path = source.path if isinstance(source, SourceSnapshot) else source
         pages_for_file = [
             p for p in document_manifest.pages if p.source_file == source_name
         ]
@@ -82,9 +84,14 @@ async def _render_outputs(
 
             adapter = adapter_for_format(document_manifest.source_format)
 
+        file_adapter = adapter
+        if isinstance(source, SourceSnapshot):
+            from saknussemm.formats._snapshot import SnapshotAdapter
+
+            file_adapter = SnapshotAdapter(adapter, source.raw)
         try:
             result, fidelity_by_lid = await _rewrite_and_verify(
-                adapter,
+                file_adapter,
                 xml_path=xml_path,
                 source_name=source_name,
                 pages=pages_for_file,

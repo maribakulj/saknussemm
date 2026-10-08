@@ -30,6 +30,32 @@ quatre items de vérité documentaire, et écrivait la règle de gel.
 
 ---
 
+## Correctifs d'intégrité — 2026-10-07
+
+Le lot de correction traite des défauts reproduits sur les octets livrés :
+provenance ALTO 4 non conforme, glyphes et textes agrégés périmés, boîtes PAGE
+conservées malgré un déplacement de frontière, relecture de sources modifiées,
+collisions de fichiers et liens symboliques à l'écriture. Il ajoute au
+pipeline le contrôle du XML sérialisé et des diagnostics XSD des versions
+embarquées. Les règles et limites sont dans `formats.md`,
+`format-support.md` et `reading-a-report.md` ; les changements de sortie sont
+décrits au `CHANGELOG` et couverts par des régressions.
+
+La contre-revue de ce lot a ajouté quatre régressions corrigées : référence
+ALTO vers un Glyph supprimé (fichier retenu, sans remappage arbitraire),
+déplacement de frontière accompagné d'une faute OCR, sidecar obsolète dans
+un dossier réutilisé et ancien XML laissé pour un fichier désormais retenu
+en écriture partielle. Le garde de frontières reste heuristique ; l'écriture
+reste atomique par fichier. Utiliser un dossier neuf par exécution pour la
+publication d'un lot.
+
+Ce lot ne ferme aucun critère de qualité des modèles, de calibration des
+gardes ou de publication. Les campagnes représentatives, la décision humaine
+de publication et le traitement applicatif des lignes à revoir restent
+nécessaires. Il n'intègre ni CTC, ni YOLO, ni nouvelle méthode de géométrie.
+
+---
+
 ## Objectif : `0.10.0`, puis `1.0.0` — jamais l'inverse
 
 Publier une `0.x` honnête plutôt qu'une `1.0` prématurée. Les raisons ont
@@ -3461,6 +3487,7 @@ la descente de granularité font différer le résultat de celui du script.
 | `VR-11` | **Un membre de paire de césure réconcilié saute l'étage C** : `_apply_line_acceptance` passe toute ligne qui tient déjà un texte, et l'étage B ne juge que la migration entre les deux moitiés — ni plancher, ni marge. Vu au run de vérification de `VR-10` : PART1 rendue « ce que notre grand mor- » (source « au. nt comme orateur, 'une situation in- »), livrée `corrected` alors que la page tient une ligne OCR « ce que notre grand mo » ; rejouée, `check_line` la refuse (`closer_to_another_line`, 0,95 contre 0,31) | bugfix (garde) | **critique** — la règle du mainteneur est 0 ligne mal rattachée | `core/acceptance.py`, `core/guards.py`, `core/outcome.py` | `VR-7` | **fait** : les membres que B vient d'accepter repassent plancher + marge (pas l'absorption, que B possède), un refus replie l'unité (`hyphen_unit_fallback`) ; `check_line(absorption=...)` ; deux empreintes `drift` bougent (bouillie sur une paire, rendue à la source). **Vérifié** (NewsEye, composite, 2026-09-24) : 18,48 → 18,45 %, 36 signalées / 3 réelles — les trois connues, toutes hors domaine, aucune nouvelle ; la garde a joué une fois, sur une chaîne de trois membres de *Paris-Soir* refusée au plancher (`too_different_from_source` + 2 × `hyphen_unit_fallback`) |
 | `VR-12` | **Une demi-ligne réécrite sans appui dans la source passe le plancher** — vu à l'œil (`hans`, H19) : sur NewsEye (composite), « Lutte contre l'impérialisme des puissances, lutte contre le fascisme et contre la guer- » pour « raison au sein de l'Union rationaliste, lutte contre le fascisme… » : la première moitié n'est nulle part sur la page (une invention sur le moule de la ligne du dessus), la seconde est juste, la ligne reste à ~0,6 de sa source, le plancher 0,15, la marge et l'absorption passent, et c'est livré `corrected`. Deux autres cas, d'un mot pris à la voisine en tête de ligne (« TIR. », « pouvoir »), ont été annotés `review_required` par la règle des noms propres — ce qui ne change aucun octet livré : **les trois sont livrés**, et en production personne ne relit. Les comptes « 0 mal rattachée » de `VR-1`/`VR-7` sont ceux du proxy (ligne entière) et tiennent : aucune ligne n'a reçu le texte d'une autre en `corrected` | mesure puis garde | important | `core/guards.py` | `VR-11` | **mesuré puis garde en option (2026-09-30, `hans` H23).** 32 470 lignes changées, 6 077 corrections distinctes, 29 runs. Par sac de mots, le cas fondateur lui-même n'est pas vu (ses mots inventés existent plus loin dans la source) ; posé **dans l'ordre**, avec des plages communes d'au moins trois caractères, il fait une suite de cinq. À « suite > 2 » : 46 corrections arrêtées — les 25 fautives (trois mots consécutifs ancrés ni dans la source ni dans la VT) et 18 justes (des mots que l'OCR avait manqués, lus sur l'image), CER inchangé à 5,83 %. **Aucun signal textuel ne sépare les deux espèces** : position, longueur, origine dans une voisine, mesurés. Donc pas de défaut : `GuardConfig(max_unanchored_words=2)` existe, `None` par défaut, motif `unanchored_run`. L'activer dans `vision()` est une décision du mainteneur ; la règle a été dessinée sur les runs qui la mesurent et reste à confirmer sur un corpus neuf |
 | `VR-14` | **Une réponse en NFD rend la page non livrable** : les parseurs lisent en NFC, les réécrivains écrivent en NFC, mais la décision garde le texte du modèle tel quel ; « aisé » décomposé (e + U+0301) décidé, écrit précomposé, et `_verify_projection` voit deux chaînes → `ProjectionError`, fichier absent de `corrected_files`. Vu trois fois sur OCR17+ (Descartes ×2, Corneille) pendant la campagne H20, intermittent | bugfix | **critique** (une page entière perdue sans erreur visible) | `core/editing.py` | — | **fait** : `ReplaceLine.text` et `ReplaceSpan.text` normalisés en NFC à la construction — le seul point par lequel tout producteur passe ; test de bout en bout avec un producteur qui répond décomposé |
+| `VR-15` | **L'étage B prend une scission de mots collés pour une migration.** `hyphenation._part1_text_migrated` compte les **mots** : une PART1 « desmots collés » rendue « des mots collés » passe de 2 à 3 mots, dépasse `part1_max_word_growth = 1`, et la paire est repliée (`hyphen_pair_fallback`) alors qu'aucune lettre n'a été ajoutée. Vu avec un correcteur qui ne peut pas inventer (`axel`, S2, phase 4) : **5 paires sur 251 lignes OCR17+ et 19 sur 2 145 lignes NewsEye** repliées pour ce seul motif, soit la totalité de l'écart entre le correcteur seul et le pipeline (OCR17+ : 5,32 → 5,46 % de CER). Les deux autres clauses de la règle (dernier mot, longueur en caractères) couvrent déjà « du texte tiré de la ligne suivante ». Proposition : ne compter la croissance en mots que si la longueur **sans espaces** a crû aussi (au-delà de `part1_last_word_char_growth`), ou mesurer la croissance en lettres. Constaté aussi : la marque de césure rendue par un producteur (`¬`) est ramenée à celle de la source sans compteur dans le rapport — correct, mais invisible | **décision** (règle de l'étage B, spec §7) | important | `core/hyphenation.py` | — | relevé le 2026-10-02, à trancher |
 
 ### Ordre
 

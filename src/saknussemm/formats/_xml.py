@@ -126,7 +126,7 @@ def mislabelled_utf8(raw: bytes) -> str | None:
 
 
 def read_source_header(
-    path: Path, mandatory_child: str | None = None
+    path: Path, mandatory_child: str | None = None, *, source_bytes: bytes | None = None
 ) -> tuple[str, str, bool]:
     """Read a document's opening elements: namespace, root name, child present.
 
@@ -149,7 +149,7 @@ def read_source_header(
     network, no DTD. ``tests/test_xml_security.py`` keeps lxml's streaming
     entry points inside this module for exactly that reason.
     """
-    raw = path.read_bytes()
+    raw = path.read_bytes() if source_bytes is None else source_bytes
     encoding = "utf-8" if mislabelled_utf8(raw) is not None else None
     stream = etree.iterparse(
         BytesIO(raw),
@@ -173,7 +173,9 @@ def read_source_header(
     return namespace, root_name, found
 
 
-def read_source_tree(path: Path) -> etree._ElementTree:
+def read_source_tree(
+    path: Path, *, source_bytes: bytes | None = None
+) -> etree._ElementTree:
     """Parse a source document, overriding a declaration that provably lies.
 
     THE way to read a source file: the parsers and the rewriters both go
@@ -185,12 +187,14 @@ def read_source_tree(path: Path) -> etree._ElementTree:
     The source file is never modified — the override is handed to lxml,
     which decodes correctly on its own.
     """
-    raw = path.read_bytes()
+    raw = path.read_bytes() if source_bytes is None else source_bytes
     encoding = "utf-8" if mislabelled_utf8(raw) is not None else None
     return etree.parse(BytesIO(raw), make_safe_parser(encoding=encoding))
 
 
-def read_source_tree_classified(path: Path) -> etree._ElementTree:
+def read_source_tree_classified(
+    path: Path, *, source_bytes: bytes | None = None
+) -> etree._ElementTree:
     """:func:`read_source_tree`, with §8.4 classification around it.
 
     The rewriters read the source a second time, at render, and theirs were
@@ -218,7 +222,7 @@ def read_source_tree_classified(path: Path) -> etree._ElementTree:
     belongs somewhere it can be written once and read once.
     """
     with classified_parse_errors(str(path)):
-        return read_source_tree(path)
+        return read_source_tree(path, source_bytes=source_bytes)
 
 
 def make_safe_parser(encoding: str | None = None) -> etree.XMLParser:
@@ -317,7 +321,7 @@ _ROOT_LOCAL_NAME = {"alto": "alto", "PcGts": "page"}
 _MANDATORY_CHILD = {"alto": "Layout", "page": "Page"}
 
 
-def sniff_format(path: Path) -> str:
+def sniff_format(path: Path, *, source_bytes: bytes | None = None) -> str:
     """``"alto"`` / ``"page"`` from the file's root element.
 
     The two standard namespaces answer first and are authoritative. Anything
@@ -331,7 +335,7 @@ def sniff_format(path: Path) -> str:
     survives a full round-trip. This door was the only branded place.
     """
     with classified_parse_errors(path.name):
-        ns, root_name, _ = read_source_header(path)
+        ns, root_name, _ = read_source_header(path, source_bytes=source_bytes)
         if _ALTO_MARKER in ns:
             return "alto"
         if _PAGE_MARKER in ns:
@@ -341,7 +345,9 @@ def sniff_format(path: Path) -> str:
         # past the root element.
         fmt = _ROOT_LOCAL_NAME.get(root_name)
         if fmt is not None:
-            _, _, found = read_source_header(path, _MANDATORY_CHILD[fmt])
+            _, _, found = read_source_header(
+                path, _MANDATORY_CHILD[fmt], source_bytes=source_bytes
+            )
             if found:
                 return fmt
     raise ParseError(

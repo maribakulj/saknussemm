@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
+from threading import RLock
 from typing import Any, cast
 
 from lxml import etree
@@ -32,6 +33,7 @@ from saknussemm.formats._xml import (
 )
 
 _XSD_DIR = Path(__file__).resolve().parent / "xsd"
+_VALIDATION_LOCK = RLock()
 
 #: Root namespace → bundled schema file. This mapping IS the public
 #: support matrix for validation (see ``docs/format-support.md``): the
@@ -81,8 +83,8 @@ def _schema_for(namespace: str) -> etree.XMLSchema:
     """Compile (once) the bundled schema for ``namespace``.
 
     The compiled ``XMLSchema`` is cached and shared; its ``error_log``
-    reflects the LAST validation, so callers read it immediately after
-    ``validate()`` (single-threaded use, same caveat as lxml parsers).
+    reflects the LAST validation. ``validate_bytes`` serializes validation
+    and diagnostic reads under one lock; direct callers must do likewise.
     """
     filename = SCHEMA_BY_NAMESPACE.get(namespace)
     if filename is None:
@@ -107,12 +109,16 @@ def validate_bytes(xml_bytes: bytes, *, source_name: str = "<bytes>") -> list[st
     """
     with classified_parse_errors(source_name):
         root = etree.fromstring(xml_bytes, make_safe_parser())
-    schema = _schema_for(detect_namespace(root))
-    if schema.validate(root):
-        return []
-    # lxml-stubs' _ErrorLog misses __iter__ — the runtime log iterates.
-    errors = cast("Iterable[Any]", schema.error_log)
-    return [f"{source_name}:{e.line}: {e.message}" for e in errors]
+    # Runs render in worker threads. Keep each validation and its error-log
+    # read together: cached XMLSchema objects otherwise expose another run's
+    # last diagnostic, which can accept or reject the wrong deliverable.
+    with _VALIDATION_LOCK:
+        schema = _schema_for(detect_namespace(root))
+        if schema.validate(root):
+            return []
+        # lxml-stubs' _ErrorLog misses __iter__ — the runtime log iterates.
+        errors = cast("Iterable[Any]", schema.error_log)
+        return [f"{source_name}:{e.line}: {e.message}" for e in errors]
 
 
 def validate_file(path: Path) -> list[str]:

@@ -24,8 +24,8 @@ The rewriter is 4-path, most-conservative-first:
 |---|---|---|
 | UNTOUCHED | text + SUBS unchanged | nothing |
 | SUBS_ONLY | text same, SUBS stale | `SUBS_*` attributes only |
-| FAST | word count unchanged | `CONTENT` per String; stale `WC`/`CC` dropped (F2) |
-| SLOW | word count changed | line rebuilt: `ID`/`STYLEREFS`/`STYLE` recycled positionally, `HPOS`/`WIDTH` recomputed (cumulative rounding, F6), `VPOS`/`HEIGHT` inherited, `WC`/`CC`/`SUBS_*` never recycled |
+| FAST | word count unchanged, no suspected boundary movement | `CONTENT` per String; stale `WC`/`CC` and Glyph children removed from changed words |
+| SLOW | word count changed or boundary movement suspected | line rebuilt: semantic attributes transferred by token alignment, word boxes estimated between surviving anchors with a proportional fallback, `VPOS`/`HEIGHT` inherited, `WC`/`CC` never recycled |
 
 The TextLine's own geometry is **never** modified. Word-level geometry
 after a slow-path rebuild is a documented approximation.
@@ -36,9 +36,19 @@ attributes) to re-segmented words without guessing, so it drops them — but,
 like PAGE's word granularity, the loss is **counted, not hidden**: each
 dropped attribute surfaces on `CorrectionReport.format_losses` as
 `<attr>_dropped` (e.g. `tagrefs_dropped`), per line and aggregate. `WC`/`CC`
-(genuinely invalidated by the text change) and recomputed geometry are not
-losses. The fast/untouched paths edit in place and preserve these
-attributes.
+(invalidated by the text change) are counted per affected line under
+`confidence_invalidated`; recomputed geometry is not a loss counter.
+Removed Glyph elements are counted under `glyph_elements_removed`.
+Unchanged words on the fast path keep their glyphs.
+If removing an element would leave a previously resolved XML reference
+dangling, the ALTO rewriter raises `ProjectionError`; the pipeline withholds
+the file. It does not guess a replacement target for reading-order links.
+
+Both formats suspect a boundary move when editing adjacent words together
+costs fewer character edits than keeping their separate slots. This catches
+`le stcmps` → `les temps`, including its OCR typo. It remains a text-only
+heuristic: ambiguous edits can have equal costs, and geometry is not proven
+correct by retaining the fast path or by reporting text fidelity `exact`.
 
 ### Word geometry on the slow path
 
@@ -68,10 +78,18 @@ P1–P7 (spec §6.2):
   (absent index ≡ 0), else the space-joined `Word` Unicode. On rewrite
   the canonical `TextEquiv` is updated (Unicode + `PlainText`), its stale
   `@conf` dropped, alternative `TextEquiv` removed.
-- **P4 — words.** Count unchanged → each `Word` updated in place, its
-  `Coords` kept. Count changed → the `Word` children are removed and the
+- **P4 — words.** Count unchanged and no suspected boundary movement → each
+  `Word` updated in place, its `Coords` kept. Count changed or boundaries
+  suspect → the `Word` children are removed and the
   text lives at line level; the lost granularity is **counted**, not
-  hidden (`words_dropped`).
+  hidden (`words_dropped`). A changed Word loses its stale Glyph children
+  (`glyph_elements_removed`). A changed line invalidates the aggregate
+  `TextEquiv` readings of its ancestor TextRegions
+  (`region_textequiv_dropped`), without inventing a concatenation order.
+  `LossPolicy(strict=True)` refuses a correction requiring Word removal.
+  It also refuses a changed line with Word markup if the parser's private
+  Word readings are unavailable (for example after manifest JSON round-trip);
+  reload the XML to restore that evidence. Identity runs remain untouched.
 - **P5 — heuristic hyphenation.** Repertoire `-` `¬` (U+00AC) `⸗`
   (U+2E17) `­` (U+00AD), alpha-before-hyphen required; always
   `hyphen_source_explicit=False` (conservative reconciliation, no
@@ -95,10 +113,11 @@ policies that can change the delivered bytes (`RetryPolicy`, `GuardConfig`, `Chu
 the same policy objects can recompute and verify it. `ConfidencePolicy`
 and `RoutingPolicy` are frozen policies too, but stay outside the composite
 while they cannot alter output: a fingerprint that moved without the output
-moving would be unreadable as evidence. ALTO records the pass in whichever container the source
-carries: a `postProcessingStep` inside an existing `<OCRProcessing>` (what
-real ABBYY/Tesseract/Gallica exports use), or a `processingStep` under the
-ALTO 4.0 generic `<Processing>`. PAGE uses the P7 slots.
+moving would be unreadable as evidence. ALTO 2/3 records a
+`postProcessingStep` inside `OCRProcessing`. ALTO 4 appends a new
+`Processing` with a unique `ID` and direct `processingStepDescription` /
+`processingSoftware` children. Existing processing records are preserved.
+PAGE uses the P7 slots.
 
 ## Corpus
 
