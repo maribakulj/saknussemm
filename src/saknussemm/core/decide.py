@@ -126,6 +126,12 @@ FALLBACK_REASON_CODES: frozenset[str] = frozenset(
         # -- niveau chunk (`core/outcome.py`) ------------------------------
         "all_attempts_exhausted",
         "chunk_error_absorbed",
+        # -- après la revue (`saknussemm.approval`) -------------------------
+        # Un relecteur a refusé la correction (`human: refused`), ou
+        # personne n'a jugé une ligne renvoyée et l'approbation la rend à
+        # sa source (`human: unreviewed`). Le seul code qui ne vient pas
+        # du moteur : il nomme une décision humaine, pas une garde.
+        "human",
     }
 )
 
