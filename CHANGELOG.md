@@ -82,6 +82,23 @@ The **top-level import surface** is provisional until `1.0.0`. It went from
 
 ### Added
 
+- **`saknussemm.approval.approve` : des jugements humains à un XML
+  approuvé.** `review_required` livre le candidat sans changer un octet, et
+  enregistrer un jugement ne changeait rien non plus (contre-revue du
+  7/10/2026). `approve(manifest, source_paths, result, judgements)` repart
+  des décisions du run, applique chaque jugement — `accepted` (la ligne
+  renvoyée devient `corrected`), `refused` (retour au texte source, repli
+  `human: refused`), `transcribed` (la lecture du relecteur, `corrected`,
+  `human: transcribed`) — puis re-rend les fichiers par le même moteur :
+  l'invariant de projection vérifie l'artefact approuvé contre CES
+  décisions, un fichier divergent est retenu. Une ligne renvoyée que
+  personne n'a jugée n'est pas livrée comme approuvée : elle revient au
+  texte source (`human: unreviewed`) et figure sur
+  `ApprovedResult.unreviewed` ; `unreviewed="deliver"` garde le candidat.
+  Le manifeste de l'appelant n'est pas modifié ; la provenance du fichier
+  nomme la relecture (`<producteur>+human-review`). Vocabulaire des
+  verdicts : celui de la démo, repris tel quel.
+
 - **Un résolveur en dernier recours est aussi interrogé quand la page a dû
   supposer.** `last_resort = True` ne le sollicitait que si la géométrie
   ancrée ne rendait rien. Or elle rend parfois une supposition : un mot

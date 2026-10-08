@@ -152,6 +152,17 @@ Sous `LossPolicy` par défaut (`REPORT`), les quatre derniers ne se produisent
 jamais : la perte se projette, est comptée et attribuée ligne à ligne.
 `token_realign` préserve la correction refusée dans `report.sidecar`.
 
+### Après la revue (`saknussemm.approval`)
+
+| code | ce qu'il veut dire |
+|---|---|
+| `human: refused` | un relecteur a refusé la correction : la ligne revient à sa source |
+| `human: unreviewed` | une ligne renvoyée que personne n'a jugée ; l'approbation la rend à sa source plutôt que de livrer un candidat non relu |
+
+Le seul code qui ne vient pas du moteur : il nomme une décision humaine.
+`human: transcribed` accompagne de la même façon une ligne `corrected` dont
+le texte est la lecture du relecteur.
+
 ### Niveau chunk (`core/outcome.py`)
 
 | code | ce qu'il veut dire |
@@ -245,6 +256,19 @@ déclarer leur code ferait promettre une raison qu'aucun run ne rendrait.
   probabilités calibrées.
 
 ---
+
+### Et après la revue — `saknussemm.approval`
+
+Le renvoi s'arrête à une annotation : le fichier porte le candidat. Ce
+qu'un relecteur en dit entre dans un artefact par `approve(manifest,
+source_paths, result, judgements)` : `accepted` livre la correction comme
+`corrected`, `refused` rend la ligne à sa source (`human:refused`),
+`transcribed` écrit la lecture du relecteur (`human:transcribed`). Le
+moteur re-rend les fichiers sous ces décisions et l'invariant de projection
+les vérifie contre elles. Une ligne renvoyée que personne n'a jugée
+revient à sa source par défaut (`human:unreviewed`, listée sur
+`ApprovedResult.unreviewed`) : un candidat non relu n'est jamais livré
+comme approuvé par omission.
 
 ## 3 ter. Ce qui n'est pas un repli — les éditions refusées
 
