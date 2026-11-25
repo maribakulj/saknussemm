@@ -273,9 +273,36 @@ jobs:
           rm SHA256SUMS
           ls -l
 
+      # Pinned to v1.14.3, up from v1.14.0, and the bump is the whole
+      # reason the first real dispatch (2026-11-25) never uploaded. The
+      # action runs `twine check` inside its own container, with its own
+      # pinned twine — v1.14.0 carries twine 6.1.0 / packaging 25.0, which
+      # refuses what hatchling now produces:
+      #
+      #   Checking dist/saknussemm-0.9.0-py3-none-any.whl: ERROR
+      #     InvalidDistribution: Invalid distribution metadata:
+      #     '2.5' is not a valid metadata version
+      #
+      # Nothing is wrong with the wheel. hatchling 1.33.0 emits
+      # `Metadata-Version: 2.5` (core metadata 2.5, PEP 794, approved
+      # September 2025); twine 7.0.0 with packaging 26.4 checks it PASSED,
+      # and Warehouse has accepted 2.5 uploads since 2026-02-17
+      # (pypi/warehouse#19254, closing #19083). The checker was the old
+      # component, not the artefact. v1.14.2's own release note says it:
+      # "update of Twine to v7 ... This version will let them upload their
+      # sdists and wheels containing core packaging metadata v2.5 to
+      # (Test)PyPI." v1.14.3 carries twine 7.0.0 / packaging 26.2.
+      #
+      # This is the second time this exact shape has cost a release: CI
+      # once skipped `twine check` because twine < 7 rejected
+      # `License-File` under metadata 2.4 (`docs/PLAN.md`, row `P1`). The
+      # repo's own gate is current and passes; what lagged was the twine
+      # inside a third-party image. Hence the version in the comment now,
+      # not `release/v1`: a moving branch name told us nothing about which
+      # twine we were about to run.
       - name: Publish to TestPyPI (Trusted Publishing OIDC + PEP 740)
         if: inputs.target == 'testpypi'
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/
@@ -289,7 +316,7 @@ jobs:
 
       - name: Publish to PyPI (Trusted Publishing OIDC + PEP 740)
         if: inputs.target == 'pypi'
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
           packages-dir: dist/
           attestations: true
