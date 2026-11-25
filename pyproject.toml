@@ -78,7 +78,22 @@ Homepage = "https://github.com/maribakulj/saknussemm"
 Issues = "https://github.com/maribakulj/saknussemm/issues"
 
 [build-system]
-requires = ["hatchling"]
+# PINNED EXACTLY, for the same reason the Dockerfiles pin image digests and
+# the workflows pin action SHAs: an unpinned backend means two builds of the
+# SAME COMMIT can differ. That is not hypothetical here. The local release
+# rehearsal of 2026-08-01 passed `twine check`; the first real dispatch, on
+# 2026-11-25, failed on the metadata version of a wheel built from the same
+# tree — because the backend resolved in between had started emitting
+# `Metadata-Version: 2.5` (hatchling 1.33.0, core metadata 2.5 / PEP 794).
+# The metadata is valid and both twine 7 and Warehouse accept it; the point
+# is that nothing in the tree recorded WHICH backend built the artefact, so
+# the change arrived unannounced, in the step that decides what is published.
+#
+# Bump it the way the image digests are bumped — deliberately, on its own,
+# with a CI run to show the artefact it produces. `pytest
+# tests/test_packaging_excludes_corpora.py` reads the BUILT sdist and wheel,
+# so it is the test that sees a backend change.
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
