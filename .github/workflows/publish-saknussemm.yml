@@ -83,19 +83,34 @@ jobs:
         # at. We require an `saknussemm-vX.Y.Z` tag pointing at HEAD,
         # where X.Y.Z matches `saknussemm.__version__` exactly.
         run: |
-          VERSION=$(python -c "
-          import re, pathlib
-          init = pathlib.Path('src/saknussemm/__init__.py').read_text()
-          # Optional `(?::\s*[^=]+)?` clause matches both
-          #   __version__ = \"X.Y.Z\"
+          # The Python below runs from a QUOTED heredoc, so bash expands
+          # nothing inside it. It used to be `python -c "…"`, and those
+          # double quotes made bash read the BACKTICKS IN A COMMENT as a
+          # command substitution: every run of this step printed
+          #     syntax error near unexpected token `?'
+          # and tried to execute `(?::\s*[^=]+)?` as a command. It happened
+          # to be harmless — the comment lost its text, Python still parsed,
+          # the version still came out right — which is the worst kind of
+          # working. The next backquoted fragment to carry a `$(…)`, a quote
+          # or a newline would corrupt the script that decides what gets
+          # published, and the error it printed meanwhile sat in the log of
+          # the one step an operator reads when a release will not go out.
+          VERSION=$(python3 - <<'PY'
+          import pathlib
+          import re
+
+          init = pathlib.Path("src/saknussemm/__init__.py").read_text()
+          # The optional (?::\s*[^=]+)? clause matches both
+          #   __version__ = "X.Y.Z"
           # and a future type-annotated form
-          #   __version__: Final[str] = \"X.Y.Z\"
+          #   __version__: Final[str] = "X.Y.Z"
           # which would otherwise return None and abort the publish.
-          m = re.search(r\"__version__\\s*(?::\\s*[^=]+)?=\\s*['\\\"]([^'\\\"]+)['\\\"]\", init)
+          m = re.search(r"__version__\s*(?::\s*[^=]+)?=\s*['\"]([^'\"]+)['\"]", init)
           if not m:
-              raise SystemExit('__version__ not found in src/saknussemm/__init__.py')
+              raise SystemExit("__version__ not found in src/saknussemm/__init__.py")
           print(m.group(1))
-          ")
+          PY
+          )
           EXPECTED_TAG="saknussemm-v${VERSION}"
           if ! git rev-parse --verify "refs/tags/${EXPECTED_TAG}" >/dev/null 2>&1; then
             echo "::error::Tag '${EXPECTED_TAG}' does not exist in this clone. Create and push it with: git tag ${EXPECTED_TAG} && git push origin ${EXPECTED_TAG}"
@@ -207,7 +222,16 @@ jobs:
         with:
           name: saknussemm-release-evidence
           path: sbom/
-          if-no-files-found: error
+          # `ignore`, not `error`, BECAUSE of the `if: always()` above: any
+          # gate that fails before the SBOM exists used to produce a second
+          # red step after the real one ("No files were found with the
+          # provided path: sbom/"), and that one came LAST in the log. The
+          # publish refused for a missing tag and the last line an operator
+          # read was about an artifact. Nothing depends on this upload —
+          # it is the operator-facing record — and an SBOM that is missing
+          # when it should exist already fails twice above, on `test -s`
+          # and on the assertion that reads its components.
+          if-no-files-found: ignore
 
   # Everything that CAN publish, and nothing else. Two pinned actions and
   # `gh`, which is preinstalled on the runner — no `pip install`, and no
